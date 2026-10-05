@@ -89,7 +89,7 @@ const AREAS = ["White City","Congo","Geneva","Bhambayi","New Town C","Izimangwen
 const ROLES = {cust:"Customer",own:"Shop owner",adm:"Admin"};
 
 function init(){
-  S = { paused:false, late:false, day:0, bank:{name:"Your business name",bank:"Your bank here",acct:"000 000 0000",branch:"000000"}, nextId:1, cart:{}, pay:null, paidTotal:0, orders:[],
+  S = { paused:false, late:false, day:0,  nextId:1, cart:{}, pay:null, paidTotal:0, orders:[],
     items:[{id:1,name:"Chips",shop:15},{id:2,name:"Russian & chips",shop:25},{id:3,name:"Cold drink",shop:10}] };
   for(let i=0;i<12;i++) S.orders.push({id:S.nextId++,lines:[{n:"Chips",q:1,s:15,o:20}],status:"delivered",settled:false});
   tab=user?user.tab:"cust"; ownView="due"; cancelling=null;
@@ -155,13 +155,14 @@ function stmtScreen(){
 
 function payScreen(){
   const due=dueNow();
+  if(!BANK) return '<h1>Pay by EFT</h1><p class="sub">Loading bank details…</p><button class="btn ghost" data-a="back">Back</button>';
   return `<h1>Pay by EFT</h1><p class="sub">Transfer the exact amount, using this reference.</p>
   <div class="card">
     <div class="row"><span>Amount</span><b>${R(due)}</b></div>
-    <div class="row"><span>Account name</span><b>${S.bank.name}</b></div>
-    <div class="row"><span>Bank</span><b>${S.bank.bank}</b></div>
-    <div class="row"><span>Account number</span><b>${S.bank.acct}</b></div>
-    <div class="row"><span>Branch code</span><b>${S.bank.branch}</b></div>
+    <div class="row"><span>Account name</span><b>${BANK.name}</b></div>
+    <div class="row"><span>Bank</span><b>${BANK.bank}</b></div>
+    <div class="row"><span>Account number</span><b>${BANK.acct}</b></div>
+    <div class="row"><span>Branch code</span><b>${BANK.branch}</b></div>
     <div class="row"><span>Reference</span><b class="ref">SHOP014-${S.late?"OCT":"SEP"}26</b></div>
     <div class="note">The reference tells us which shop paid. We'll reopen your shop as soon as we confirm the payment.</div>
     <button class="btn" data-a="paid">I've made the payment</button>
@@ -177,7 +178,7 @@ function admin(){
       <button class="btn" data-a="confirm">Confirm payment received</button>`:'<small>Nothing waiting.</small>'}
   </div>
   <div class="card"><h2>Your bank details</h2><small>Owners see these when they pay.</small>
-    ${[["name","Account name"],["bank","Bank"],["acct","Account number"],["branch","Branch code"]].map(([k,l])=>`<div class="row"><span>${l}</span><input type="text" style="width:60%" value="${S.bank[k]}" data-a="bank" data-k="${k}" aria-label="${l}"></div>`).join("")}</div>
+    ${[["name","Account name"],["bank","Bank"],["acct","Account number"],["branch","Branch code"]].map(([k,l])=>`<div class="row"><span>${l}</span><input type="text" style="width:60%" value="${BANK?BANK[k]:""}" data-a="bank" data-k="${k}" aria-label="${l}"></div>`).join("")}</div>
   <div class="card"><h2>Your earnings</h2>
     <div class="row"><span>Received so far</span><b>${R(S.paidTotal)}</b></div>
     <div class="row"><span>Still owed by shop 014</span><b>${R(dueNow())}</b></div>
@@ -201,15 +202,61 @@ const LOGO = `<svg viewBox="0 0 260 226" role="img" aria-label="Inanda Business 
 <g fill="#12352b"><path d="M148 66 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z"/><path d="M122 54 l2 4 4 2 -4 2 -2 4 -2 -4 -4 -2 4 -2z"/></g>
 <text x="130" y="219" text-anchor="middle" font-size="14" font-weight="800" letter-spacing="1.5" style="fill:var(--ink)" font-family="Bricolage Grotesque,system-ui,sans-serif">INANDA BUSINESS WEB</text></svg>`;
 
+const SB_URL="https://zcqkydqrsriijjwaajjw.supabase.co", SB_KEY="sb_publishable_GE52i2wYNandjWq8rjpF4A_kbqIFraT";
+let sess=null, BANK=null, authMsg="";
+async function sb(path,opt={}){
+  const r=await fetch(SB_URL+path,{...opt,headers:{apikey:SB_KEY,"Content-Type":"application/json",...(sess?{Authorization:"Bearer "+sess.access_token}:{}),...(opt.headers||{})}});
+  const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){}
+  if(!r.ok) throw new Error((j&&(j.msg||j.error_description||j.message))||"Something went wrong. Please try again.");
+  return j;
+}
+async function afterLogin(s){
+  sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
+  const p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id);
+  const role=(p&&p[0]&&p[0].role)||"customer";
+  user={tab:{customer:"cust",owner:"own",admin:"adm"}[role]}; tab=user.tab; ownView="due"; loc=null; authMsg="";
+  if(role!=="customer") loadBank();
+}
+async function loadBank(){
+  try{const b=await sb("/rest/v1/bank_details?select=*&id=eq.1");
+    if(b&&b[0]) BANK={name:b[0].account_name,bank:b[0].bank_name,acct:b[0].account_number,branch:b[0].branch_code||""};}catch(e){}
+  render();
+}
+async function saveBank(k,v){
+  const col={name:"account_name",bank:"bank_name",acct:"account_number",branch:"branch_code"}[k];
+  try{await sb("/rest/v1/bank_details?id=eq.1",{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({[col]:v})});}
+  catch(e){alert("Could not save: "+e.message);}
+}
+async function doLogin(){
+  const email=document.getElementById("uid").value.trim(), password=document.getElementById("pw").value;
+  try{ await afterLogin(await sb("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})})); }
+  catch(e){ authMsg=e.message; }
+  render();
+}
+async function doSignup(){
+  const email=document.getElementById("uid").value.trim(), password=document.getElementById("pw").value;
+  try{ const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password})});
+    if(r&&r.access_token) await afterLogin(r); else authMsg="Account created. Check your email to confirm it, then log in."; }
+  catch(e){ authMsg=e.message; }
+  render();
+}
+async function restore(){
+  try{ const s=JSON.parse(localStorage.getItem("inanda_sess")||"null"); if(!s) return;
+    await afterLogin(await sb("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:s.refresh_token})})); }
+  catch(e){ localStorage.removeItem("inanda_sess"); }
+  render();
+}
+
 function loginScreen(){
   return `<div class="card"><h2>Log in</h2>
-  <div class="seg" role="radiogroup" aria-label="I am a">${Object.entries(ROLES).map(([k,l])=>`<button role="radio" aria-checked="${loginRole===k}" data-a="role" data-v="${k}">${l}</button>`).join("")}</div>
-  <label for="uid">${loginRole==="cust"?"Cellphone number":"Email address"}</label>
-  <input id="uid" type="${loginRole==="cust"?"tel":"email"}" autocomplete="username">
-  <label for="pw">${loginRole==="cust"?"Code sent to you":"Password"}</label>
+  ${authMsg?`<div class="banner ${authMsg.startsWith("Account created")?"ok":"bad"}">${authMsg}</div>`:""}
+  <label for="uid">Email address</label>
+  <input id="uid" type="email" autocomplete="username">
+  <label for="pw">Password</label>
   <input id="pw" type="password" autocomplete="current-password">
   <button class="btn" data-a="login">Log in</button>
-  <div class="note">Demo only: any details will let you in.</div></div>`;
+  <button class="btn ghost" data-a="signup">Create a customer account</button>
+  <div class="note">Shop owners and admin get their access from Inanda Business Web. Log in with the email you were given.</div></div>`;
 }
 function areaScreen(){
   const q={cust:"Where should we deliver?",own:"Which area is your shop in?",adm:"Choose an area to look at"}[user.tab];
@@ -226,8 +273,9 @@ document.body.addEventListener("click",e=>{
   if(a==="tab"){tab=el.dataset.v; ownView="due";}
   else if(a==="reset") init();
   else if(a==="role") loginRole=el.dataset.v;
-  else if(a==="login"){user={tab:loginRole}; tab=loginRole; ownView="due"; loc=null;}
-  else if(a==="logout"){user=null; loc=null;}
+  else if(a==="login"){doLogin();}
+  else if(a==="signup"){doSignup();}
+  else if(a==="logout"){user=null; loc=null; sess=null; BANK=null; localStorage.removeItem("inanda_sess");}
   else if(a==="area") loc=null;
   else if(a==="loc") loc=el.dataset.v;
   else if(a==="d2"){S.late=true;S.day=2;}
@@ -248,10 +296,10 @@ document.body.addEventListener("click",e=>{
   render();
 });
 document.body.addEventListener("change",e=>{
-  if(e.target.dataset.a==="bank"){S.bank[e.target.dataset.k]=e.target.value;}
+  if(e.target.dataset.a==="bank"){const k=e.target.dataset.k,v=e.target.value; if(BANK){BANK[k]=v; saveBank(k,v);}}
   if(e.target.dataset.a==="price"){const i=S.items.find(x=>x.id===+e.target.dataset.id); const v=parseFloat(e.target.value); if(v>0) i.shop=v; render();}
 });
-init(); document.getElementById("logo").innerHTML=LOGO; render();
+init(); document.getElementById("logo").innerHTML=LOGO; render(); restore();
 
 // ---- PWA: install button and service worker ----
 let deferred = null;
