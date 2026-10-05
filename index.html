@@ -240,6 +240,29 @@ async function doSignup(){
   catch(e){ authMsg=e.message; }
   render();
 }
+let authView="login", recoveryToken=null;
+async function doRecover(){
+  const email=document.getElementById("uid").value.trim();
+  if(!email){authMsg="Type your email address first.";render();return;}
+  try{ await sb("/auth/v1/recover?redirect_to="+encodeURIComponent(location.origin+location.pathname),{method:"POST",body:JSON.stringify({email})});
+    authMsg="If that email has an account, we have sent a link to reset the password."; authView="login"; }
+  catch(e){ authMsg=e.message; }
+  render();
+}
+async function doSetPw(){
+  const pw=document.getElementById("pw").value, pw2=document.getElementById("pw2").value;
+  if(pw.length<6){authMsg="The password must be at least 6 characters.";render();return;}
+  if(pw!==pw2){authMsg="The two passwords are not the same.";render();return;}
+  try{ await sb("/auth/v1/user",{method:"PUT",headers:{Authorization:"Bearer "+recoveryToken},body:JSON.stringify({password:pw})});
+    recoveryToken=null; authView="login"; authMsg="Password changed. Log in with your new password."; }
+  catch(e){ authMsg=e.message; }
+  render();
+}
+(function(){ // arriving from the reset email link
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(h.get("type")==="recovery"&&h.get("access_token")){ recoveryToken=h.get("access_token"); authView="reset"; history.replaceState(null,"",location.pathname); }
+  else if(h.get("error_description")){ authMsg="That link has expired. Ask for a new reset link."; history.replaceState(null,"",location.pathname); }
+})();
 async function restore(){
   try{ const s=JSON.parse(localStorage.getItem("inanda_sess")||"null"); if(!s) return;
     await afterLogin(await sb("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:s.refresh_token})})); }
@@ -249,14 +272,29 @@ async function restore(){
 
 function loginScreen(){
   return `<div class="card"><h2>Log in</h2>
-  ${authMsg?`<div class="banner ${authMsg.startsWith("Account created")?"ok":"bad"}">${authMsg}</div>`:""}
+  ${authMsg?`<div class="banner ${/^(Account created|Password changed|If that email)/.test(authMsg)?"ok":"bad"}">${authMsg}</div>`:""}
   <label for="uid">Email address</label>
   <input id="uid" type="email" autocomplete="username">
   <label for="pw">Password</label>
   <input id="pw" type="password" autocomplete="current-password">
   <button class="btn" data-a="login">Log in</button>
   <button class="btn ghost" data-a="signup">Create a customer account</button>
+  <button class="sm" style="margin-top:12px" data-a="forgot">Forgot password?</button>
   <div class="note">Shop owners and admin get their access from Inanda Business Web. Log in with the email you were given.</div></div>`;
+}
+function forgotScreen(){
+  return `<div class="card"><h2>Reset your password</h2><p class="sub">Type your email address and we will send you a link.</p>
+  ${authMsg?`<div class="banner bad">${authMsg}</div>`:""}
+  <label for="uid">Email address</label><input id="uid" type="email" autocomplete="username">
+  <button class="btn" data-a="sendreset">Send reset link</button>
+  <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
+}
+function resetScreen(){
+  return `<div class="card"><h2>Choose a new password</h2>
+  ${authMsg?`<div class="banner bad">${authMsg}</div>`:""}
+  <label for="pw">New password</label><input id="pw" type="password" autocomplete="new-password">
+  <label for="pw2">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
+  <button class="btn" data-a="setpw">Save new password</button></div>`;
 }
 function areaScreen(){
   const q={cust:"Where should we deliver?",own:"Which area is your shop in?",adm:"Choose an area to look at"}[user.tab];
@@ -265,7 +303,7 @@ function areaScreen(){
 function render(){
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${loc?" · "+loc:""}</span><span>${loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="logout">Log out</button></span>`:"";
   document.getElementById("demo").style.display = user&&loc?"flex":"none";
-  document.getElementById("app").innerHTML = !user?loginScreen():!loc?areaScreen():tab==="cust"?customer():tab==="own"?owner():admin();
+  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):!loc?areaScreen():tab==="cust"?customer():tab==="own"?owner():admin();
 }
 document.body.addEventListener("click",e=>{
   const el=e.target.closest("[data-a]"); if(!el) return;
@@ -275,6 +313,10 @@ document.body.addEventListener("click",e=>{
   else if(a==="role") loginRole=el.dataset.v;
   else if(a==="login"){doLogin();}
   else if(a==="signup"){doSignup();}
+  else if(a==="forgot"){authView="forgot"; authMsg="";}
+  else if(a==="tologin"){authView="login"; authMsg="";}
+  else if(a==="sendreset"){doRecover();}
+  else if(a==="setpw"){doSetPw();}
   else if(a==="logout"){user=null; loc=null; sess=null; BANK=null; localStorage.removeItem("inanda_sess");}
   else if(a==="area") loc=null;
   else if(a==="loc") loc=el.dataset.v;

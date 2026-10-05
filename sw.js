@@ -1,6 +1,6 @@
 // Service worker: caches the app so it opens offline and installs as an app.
 // Change VERSION whenever you update any file, so phones pick up the new version.
-const VERSION = "inanda-v2";
+const VERSION = "inanda-v3";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
