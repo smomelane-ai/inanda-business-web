@@ -65,6 +65,36 @@ input[type=password],input[type=email],input[type=tel]{width:100%;font:inherit;f
 .areas{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .areas button{font:inherit;font-weight:600;font-size:15px;padding:18px 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
 .areas button:hover{border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:8px 2px}
+.sec-h h2{margin:0}.muted{font-size:12px;color:var(--muted)}
+.vbar{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 14px;margin:0 -2px 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.vbar::-webkit-scrollbar{display:none}
+.vcard{position:relative;flex:0 0 150px;aspect-ratio:9/16;border-radius:18px;overflow:hidden;scroll-snap-align:start;background:linear-gradient(160deg,#12352b,#1b7a4b);cursor:pointer;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.22);transition:transform .2s}
+.vcard:hover{transform:translateY(-2px)}
+.vcard:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.vposter{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.vcard::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0) 55%);pointer-events:none}
+.vplay{position:absolute;top:50%;left:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(255,255,255,.9);color:#12352b;display:grid;place-items:center;z-index:2;transition:transform .2s}
+.vcard:hover .vplay{transform:scale(1.1)}
+.vtitle{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;font-weight:600;font-size:13px;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.vcard video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:3;background:#000}
+.vcard.playing::after,.vcard.playing .vplay,.vcard.playing .vtitle{display:none}
+.vcard.verr::before{content:"Connect to the internet to watch";position:absolute;left:10px;right:10px;bottom:44px;z-index:4;font-size:12px;background:rgba(0,0,0,.65);padding:6px 8px;border-radius:8px}
+@media (min-width:520px){.vcard{flex-basis:170px}}
+@media (prefers-reduced-motion:reduce){.vcard,.vplay{transition:none}}
+.ncard{background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.nimg{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg)}
+.nbody{padding:14px 16px 4px}
+.nmeta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+.nlive{font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ok)}
+.ncard h3{margin:0 0 6px;font-size:18px;line-height:1.25}
+.ntext{margin:0;font-size:15px}
+.ntext.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.nmore{font:inherit;font-size:13px;font-weight:600;background:none;border:0;color:var(--ink);padding:6px 0;cursor:pointer;text-decoration:underline}
+.nfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 16px 14px;border-top:1px solid var(--line);margin-top:6px}
+.nfoot a{font-size:13px;color:var(--ink)}
+.badge{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);font-weight:800;font-size:13px;padding:5px 12px 5px 5px;border-radius:999px}
+.bav{width:22px;height:22px;border-radius:50%;background:var(--on-accent);color:var(--accent);display:grid;place-items:center;font-size:12px}
 </style>
 </head>
 <body>
@@ -80,8 +110,8 @@ const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tab="cust", ownView="due", cancelling=null, user=null, loc=null, locId=null;
 const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver"};
-let cview="food";
-const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{},req:false});
+let cview="home";
+const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},req:false,news:[],vids:[],feedErr:""});
 let ST=blank();
 const tagFor = st => ({placed:["New","bad"],accepted:["Accepted",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""],open:["Waiting for drivers","bad"],requested:["Waiting for driver","bad"],started:["Trip started",""],declined:["Declined",""],completed:["Arrived safely","ok"]}[st]||[st,""]);
 const rpc=(fn,args)=>sb("/rest/v1/rpc/"+fn,{method:"POST",body:JSON.stringify(args)});
@@ -116,6 +146,23 @@ async function loadAdmin(){
     sb("/rest/v1/payments?select=id,payer_type,reference,amount_cents&status=eq.pending&order=id"),
     sb("/rest/v1/transport_requests?select=id,from_place,to_place,price_cents,started_at&status=eq.started&order=id")]);
   ST.all=r[0].map(s=>({...s,...(r[1].find(d=>d.shop_id===s.id)||{})})); ST.pend=r[2]; ST.pays=r[3]; ST.xtrips=r[4];
+}
+const safeUrl=u=>/^https?:\/\//i.test(u||"")?u:"";
+const ago=iso=>{const m=Math.round((Date.now()-new Date(iso))/6e4); if(m<1)return "just now"; if(m<60)return m+" min ago"; const h=Math.round(m/60); if(h<24)return h+(h===1?" hour ago":" hours ago"); const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");};
+async function loadFeed(){
+  try{
+    const r=await Promise.all([
+      sb("/rest/v1/inanda_news?select=id,title,body,image_url,source_name,source_url,posted_at&is_published=eq.true&order=posted_at.desc&limit=6"),
+      sb("/rest/v1/funny_videos?select=id,title,video_url,poster_url,created_at&is_published=eq.true&order=created_at.desc&limit=12")]);
+    ST.news=r[0]; ST.vids=r[1]; ST.feedErr="";
+  }catch(e){ ST.feedErr=navigator.onLine===false?"offline":e.message; }
+}
+async function uploadMedia(file,folder){
+  const isImg=/^image\//.test(file.type), body=isImg?await shrink(file):file;
+  const path=`${folder}/${Date.now()}.${isImg?"jpg":(file.type==="video/webm"?"webm":"mp4")}`;
+  const r=await fetch(`${SB_URL}/storage/v1/object/inanda-media/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"Content-Type":body.type||file.type},body});
+  if(!r.ok){ let m=""; try{m=(await r.json()).message||"";}catch(e){} throw new Error("Could not upload"+(m?": "+m:"")+" (code "+r.status+")"); }
+  return `${SB_URL}/storage/v1/object/public/inanda-media/${path}`;
 }
 async function loadMe(){ const m=await sb(`/rest/v1/drivers?select=*&id=eq.${sess.user.id}`); ST.me=m[0]||null; }
 async function loadTrips(){
@@ -155,7 +202,7 @@ async function upload(bucket,file,name){
     throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return path;
 }
-const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?loadAdmin():user.tab==="drv"?loadDriver():loadCust();
+const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed()]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed()]);
 
 // ---- screens ----
 function food(){
@@ -182,10 +229,26 @@ const pl=k=>{const v=ST.form[k]||(ST.areas[0]&&ST.areas[0].name)||""; return v==
 const placeSel=(k,l)=>sel(k,l,[...ST.areas.map(a=>[a.name,a.name]),["__other","Another place…"]])+(ST.form[k]==="__other"?fld(k+"o","Place name"):"");
 const GOODS=[["furniture","Furniture"],["livestock","Livestock"],["material","Material"],["goods","Other goods"]];
 const person=d=>`<div style="display:flex;gap:12px;align-items:center">${d.photo?`<img src="${esc(d.photo)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover">`:'<div style="width:64px;height:64px;border-radius:50%;background:var(--bg)"></div>'}<div><b>${esc(d.full_name)}</b><br><small>${esc(d.vehicle_colour)} ${esc(d.vehicle_make)} · ${esc(d.plate_number)}<br>${esc(d.cellphone)}</small></div></div>`;
+const area=(k,l,ph="")=>`<label for="f_${k}">${l}</label><textarea id="f_${k}" rows="5" style="width:100%;font:inherit;font-size:16px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)" data-a="form" data-k="${k}" placeholder="${ph}">${esc(ST.form[k]||"")}</textarea>`;
+function videoBar(){
+  if(!ST.vids.length) return "";
+  return `<section aria-label="Funny videos"><div class="sec-h"><h2>Funny corner</h2><span class="muted">Tap to play</span></div><div class="vbar">${ST.vids.map(v=>`<div class="vcard" role="button" tabindex="0" data-src="${esc(safeUrl(v.video_url))}" aria-label="Play ${esc(v.title)}">${safeUrl(v.poster_url)?`<img class="vposter" src="${esc(safeUrl(v.poster_url))}" alt="" loading="lazy">`:""}<div class="vplay"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div><div class="vtitle">${esc(v.title)}</div></div>`).join("")}</div></section>`;
+}
+function newsSection(){
+  const cards=ST.news.map(n=>{const img=safeUrl(n.image_url), own=img.startsWith(SB_URL), src=safeUrl(n.source_url), nm=n.source_name||"Chris";
+    return `<article class="ncard">${img?`<img class="nimg" src="${esc(img)}" alt="" loading="lazy" ${own?'crossorigin="anonymous"':""}>`:""}
+    <div class="nbody"><div class="nmeta"><span class="nlive">Inanda update</span><span>${ago(n.posted_at)}</span></div><h3>${esc(n.title)}</h3>
+    <p class="ntext ${n.body.length>170?"clamp":""}">${esc(n.body).replace(/\n/g,"<br>")}</p>${n.body.length>170?'<button class="nmore" type="button">Read more</button>':""}</div>
+    <footer class="nfoot"><span class="badge"><span class="bav">${esc(nm.charAt(0).toUpperCase())}</span>News via ${esc(nm)}</span>${src?`<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">View original</a>`:""}</footer></article>`}).join("");
+  return `<section aria-label="Inanda news"><div class="sec-h"><h2>Inanda news</h2><span class="muted">${ST.news[0]?"Updated "+ago(ST.news[0].posted_at):""}</span></div>${cards||`<div class="card"><small>${ST.feedErr?"Updates will show here when you are online.":"No updates yet."}</small></div>`}</section>`;
+}
+function feed(){
+  return (navigator.onLine===false?'<div class="banner bad">You are offline. Showing the last saved updates. Videos need the internet.</div>':"")+videoBar()+newsSection();
+}
 function customer(){
-  const seg=`<div class="seg" role="tablist">${[["food","Order food"],["drive","Request a driver"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}</button>`).join("")}</div>`;
+  const seg=`<div class="seg" role="tablist">${[["home","Home"],["food","Order food"],["drive","Request a driver"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
-  return seg+(cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
+  return seg+(cview==="home"?feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
   if(ST.req) return reqForm();
@@ -305,9 +368,15 @@ function admin(){
     <div class="row"><span>${s.orders_delivered||0} orders delivered</span><b>${R(s.amount_due_cents||0)} due</b></div>
     <button class="btn ghost" data-a="${o?"pauseshop":"openshop"}" data-id="${s.id}">${o?"Pause shop":"Reopen shop"}</button></div>`}).join("");
   const bank=[["name","Account name"],["bank","Bank"],["acct","Account number"],["branch","Branch code"]].map(([k,l])=>`<div class="row"><span>${l}</span><input type="text" style="width:60%" value="${BANK?esc(BANK[k]):""}" data-a="bank" data-k="${k}" aria-label="${l}"></div>`).join("");
+  const feedAdmin=`<h2>Post to Home</h2><div class="card"><b>Inanda news</b>${fld("ntitle","Headline")}${area("nbody","News text")}${fld("nsrc","Reported by")}${fld("nurl","Link to the original post (optional)","https://...")}${fld("nimg","Picture link (optional)","https://...")}
+    <label for="n_file">Or upload a picture</label><input id="n_file" type="file" accept="image/*"><button class="btn" data-a="postnews">Post news</button>
+    ${ST.news.map(n=>`<div class="row"><span>${esc(n.title)}</span><button class="sm" data-a="delnews" data-id="${n.id}">Delete</button></div>`).join("")}</div>
+    <div class="card"><b>Funny video</b>${fld("vtitle","Title")}${fld("vurl","Video link (direct .mp4 link)","https://....mp4")}
+    <label for="v_file">Or upload a short video (under 25 MB)</label><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
+    ${ST.vids.map(v=>`<div class="row"><span>${esc(v.title)}</span><button class="sm" data-a="delvid" data-id="${v.id}">Delete</button></div>`).join("")}</div>`;
   return `<h1>Admin</h1><p class="sub">Drivers, payments and shops.</p>${msgs()}
   ${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
-  <h2>Shops</h2>${rows||'<div class="card"><small>No shops yet.</small></div>'}
+  ${feedAdmin}<h2>Shops</h2>${rows||'<div class="card"><small>No shops yet.</small></div>'}
   <div class="card"><h2>Your bank details</h2><small>Only logged-in owners, drivers and you can see these.</small>${bank}</div>`;
 }
 const LOGO = `<svg viewBox="0 0 260 226" role="img" aria-label="Inanda Business Web logo: a woman paying a man">
@@ -338,8 +407,8 @@ async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
   const p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id);
   const role=(p&&p[0]&&p[0].role)||"customer";
-  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="food"; tab=user.tab; ownView="due"; loc=null; authMsg="";
-  try{ await loadAreas(); if(role==="owner") await loadOwner(); else if(role==="admin") await loadAdmin(); else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); } }catch(e){ ST.err=e.message; }
+  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; loc=null; authMsg="";
+  try{ await loadAreas(); if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } }catch(e){ ST.err=e.message; }
   if(role!=="customer") loadBank();
 }
 async function loadBank(){
@@ -451,7 +520,7 @@ const H={
   docancel:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"cancelled",p_reason:document.getElementById("why").value});cancelling=null;await loadOwner();}),
   pay:()=>{ownView="pay";}, stmt:()=>{ownView="stmt";}, back:()=>{ownView="due";},
   paid:()=>go(async()=>{await rpc("submit_payment",{});ownView="due";await reload();ST.note="Payment submitted. We will confirm it when we see it in our account.";}),
-  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=false;if(cview==="drive")await loadTrips();if(cview==="apply")await loadMe();}),
+  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=false;if(cview==="drive")await loadTrips();if(cview==="home")await loadFeed();if(cview==="apply")await loadMe();}),
   newreq:()=>{ST.req=true;}, noreq:()=>{ST.req=false;},
   sendreq:()=>go(async()=>{const f=ST.form, b=Math.round(parseFloat(f.budget)*100);
     await rpc("request_transport",{p_from:pl("rfrom"),p_to:pl("rto"),p_goods:f.goods||"furniture",p_description:f.desc||"",p_pickup:f.pickup||"",p_when:f.when||"",p_phone:f.phone||"",p_budget_cents:b>0?b:null});
@@ -477,6 +546,20 @@ const H={
     else await sb("/rest/v1/driver_routes",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({driver_id:sess.user.id,from_place:from,to_place:to,price_cents:cents})});
     f.pprice=""; await loadDriver(); ST.note="Route price saved."; }),
   delroute:(el,id)=>go(async()=>{await sb("/rest/v1/driver_routes?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadDriver();}),
+  postnews:()=>go(async()=>{const f=ST.form;
+    if(!(f.ntitle||"").trim()||!(f.nbody||"").trim()) throw new Error("Add a headline and the news text.");
+    if(!(f.nsrc||"").trim()) throw new Error("Say who reported it, for example Chris.");
+    let img=(f.nimg||"").trim(); const file=document.getElementById("n_file").files[0]; if(file) img=await uploadMedia(file,"news");
+    await sb("/rest/v1/inanda_news",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.ntitle.trim(),body:f.nbody.trim(),image_url:img||null,source_name:f.nsrc.trim(),source_url:(f.nurl||"").trim()||null})});
+    Object.assign(f,{ntitle:"",nbody:"",nimg:"",nurl:""}); await loadFeed(); ST.note="News posted."; }),
+  postvideo:()=>go(async()=>{const f=ST.form;
+    if(!(f.vtitle||"").trim()) throw new Error("Add a title for the video.");
+    let url=(f.vurl||"").trim(); const file=document.getElementById("v_file").files[0]; if(file) url=await uploadMedia(file,"videos");
+    if(!url) throw new Error("Paste a video link or choose a video file.");
+    await sb("/rest/v1/funny_videos",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.vtitle.trim(),video_url:url})});
+    Object.assign(f,{vtitle:"",vurl:""}); await loadFeed(); ST.note="Video added."; }),
+  delnews:(el,id)=>go(async()=>{await sb("/rest/v1/inanda_news?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed();}),
+  delvid:(el,id)=>go(async()=>{await sb("/rest/v1/funny_videos?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed();}),
   approve:el=>go(async()=>{await rpc("approve_driver",{p_driver:el.dataset.v});await loadAdmin();}),
   payconfirm:(el,id)=>go(async()=>{await rpc("confirm_payment",{p_payment:id});await loadAdmin();}),
   payreject:(el,id)=>go(async()=>{await rpc("reject_payment",{p_payment:id});await loadAdmin();}),
@@ -496,6 +579,23 @@ document.body.addEventListener("change",e=>{
   else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt"].includes(t.dataset.k)) render(); }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
+function playCard(c){
+  document.querySelectorAll(".vcard video").forEach(v=>v.pause());
+  if(c.querySelector("video")||!c.dataset.src) return;
+  const v=document.createElement("video"); v.src=c.dataset.src; v.controls=true; v.preload="auto"; v.setAttribute("playsinline","");
+  v.addEventListener("error",()=>{c.classList.remove("playing"); c.classList.add("verr"); v.remove();});
+  new IntersectionObserver(es=>es.forEach(en=>{ if(!en.isIntersecting) v.pause(); }),{threshold:.4}).observe(c);
+  c.classList.add("playing"); c.classList.remove("verr"); c.appendChild(v); v.play().catch(()=>{});
+}
+document.addEventListener("click",e=>{
+  const c=e.target.closest(".vcard"); if(c&&!e.target.closest("video")) playCard(c);
+  const b=e.target.closest(".nmore"); if(b){ const p=b.previousElementSibling, open=!p.classList.toggle("clamp"); b.textContent=open?"Show less":"Read more"; }
+});
+document.addEventListener("keydown",e=>{ if((e.key==="Enter"||e.key===" ")&&e.target.classList&&e.target.classList.contains("vcard")){ e.preventDefault(); playCard(e.target); } });
+if("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message",e=>{
+  if(e.data&&e.data.type==="feed-updated"&&user&&!document.querySelector(".vcard.playing")) loadFeed().then(()=>{ if(user&&cview==="home"&&tab==="cust") render(); });
+});
+addEventListener("online",()=>{ if(user) go(reload); }); addEventListener("offline",()=>{ if(user) render(); });
 document.getElementById("logo").innerHTML=LOGO; render(); restore();
 
 // ---- PWA: install button and service worker ----

@@ -1,6 +1,8 @@
-// Service worker: caches the app so it opens offline and installs as an app.
-// Change VERSION whenever you update any file, so phones pick up the new version.
-const VERSION = "inanda-v7";
+// Service worker for Inanda Business Web.
+// Change VERSION whenever you change any file, so phones pick up the new version.
+const VERSION = "inanda-v8";
+const FEED_CACHE = "inanda-feed-v1";                       // news text, video list and news pictures (kept between versions)
+const SB_HOST = "zcqkydqrsriijjwaajjw.supabase.co";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -8,15 +10,54 @@ self.addEventListener("install", e => {
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k !== VERSION && k !== FEED_CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
+
+// Videos are never saved: they stream live from the network when someone taps play.
+const isVideo = (r, u) => r.destination === "video" || r.destination === "audio" || r.headers.has("range")
+  || /\.(mp4|webm|mov|m4v|m3u8|ogg|ogv)$/i.test(u.pathname);
+
+async function notify() {
+  const clients = await self.clients.matchAll({ type: "window" });
+  clients.forEach(c => c.postMessage({ type: "feed-updated" }));
+}
+async function trim(cache, max) {
+  const keys = await cache.keys();
+  for (let i = 0; i < keys.length - max; i++) await cache.delete(keys[i]);
+}
+// Stale-while-revalidate: answer from the saved copy straight away, refresh it in the background.
+async function swr(e, max) {
+  const cache = await caches.open(FEED_CACHE), isImg = e.request.destination === "image";
+  const hit = await cache.match(e.request, { ignoreVary: true });
+  const net = fetch(e.request).then(async res => {
+    if (res.ok) {
+      const old = hit && !isImg ? await hit.clone().text() : null;
+      await cache.put(e.request, res.clone());
+      if (old !== null && (await res.clone().text()) !== old) notify();   // tell the open page there is fresh news
+      if (max) trim(cache, max);
+    }
+    return res;
+  }).catch(() => null);
+  e.waitUntil(net);
+  return hit || (await net) || (isImg ? new Response("", { status: 504 })
+    : new Response("[]", { status: 503, headers: { "Content-Type": "application/json" } }));
+}
+
 self.addEventListener("fetch", e => {
   const r = e.request;
   if (r.method !== "GET") return;
   const u = new URL(r.url);
-  // Pages: try the network first so updates arrive quickly, fall back to the saved copy offline.
-  if (r.mode === "navigate") {
+
+  if (isVideo(r, u)) return;                                  // 1. videos: straight to the network, never cached
+
+  if (u.hostname === SB_HOST) {
+    if (/^\/rest\/v1\/(inanda_news|funny_videos)/.test(u.pathname)) { e.respondWith(swr(e)); return; }          // 2. news text + video list
+    if (r.destination === "image" && u.pathname.startsWith("/storage/v1/object/public/inanda-media/")) { e.respondWith(swr(e, 60)); return; } // 3. news pictures
+    return;                                                   // everything else on Supabase (logins, orders, payments) is never cached
+  }
+
+  if (r.mode === "navigate") {                                // the app page: network first, saved copy offline
     e.respondWith(fetch(r).then(res => {
       const copy = res.clone();
       caches.open(VERSION).then(c => c.put("index.html", copy));
@@ -24,8 +65,7 @@ self.addEventListener("fetch", e => {
     }).catch(() => caches.match("index.html")));
     return;
   }
-  // Our own files and Google Fonts: saved copy first, refreshed in the background.
-  if (u.origin === location.origin || /(^|\.)fonts\.(googleapis|gstatic)\.com$/.test(u.hostname)) {
+  if (u.origin === location.origin || /(^|\.)fonts\.(googleapis|gstatic)\.com$/.test(u.hostname)) {   // our files and fonts
     e.respondWith(caches.match(r).then(hit => {
       const net = fetch(r).then(res => {
         if (res.ok || res.type === "opaque") { const copy = res.clone(); caches.open(VERSION).then(c => c.put(r, copy)); }
