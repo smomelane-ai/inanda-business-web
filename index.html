@@ -458,6 +458,34 @@ const LOGO = `<svg viewBox="0 0 260 226" role="img" aria-label="Inanda Business 
 
 const SB_URL="https://zcqkydqrsriijjwaajjw.supabase.co", SB_KEY="sb_publishable_GE52i2wYNandjWq8rjpF4A_kbqIFraT";
 let sess=null, BANK=null, authMsg="";
+
+// ---- Cloudflare Turnstile (CAPTCHA) ----
+// Paste your Turnstile SITE key between the quotes below. While it is empty, the app runs without CAPTCHA.
+const TS_SITEKEY="";
+let tsToken="", tsWidget=null;
+const tsBox=()=>TS_SITEKEY?'<div id="tsbox" style="margin:14px 0 4px;min-height:65px"></div>':"";
+const tsMeta=()=>TS_SITEKEY?{gotrue_meta_security:{captcha_token:tsToken}}:{};
+function tsCheck(){
+  if(!TS_SITEKEY) return;
+  if(!window.turnstile){ tsLoad(); throw new Error("The security check could not load. Check your internet connection and try again."); }
+  if(!tsToken) throw new Error("Please wait a moment for the security check to finish, then try again.");
+}
+function tsLoad(){
+  if(!TS_SITEKEY||document.getElementById("ts-script")) return;
+  const sc=document.createElement("script"); sc.id="ts-script"; sc.async=true; sc.defer=true;
+  sc.src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+  sc.onload=tsMount; sc.onerror=()=>sc.remove();
+  document.head.appendChild(sc);
+}
+function tsMount(){
+  tsToken="";
+  if(tsWidget!==null&&window.turnstile){ try{turnstile.remove(tsWidget);}catch(e){} }
+  tsWidget=null;
+  const box=document.getElementById("tsbox");
+  if(!TS_SITEKEY||!box||!window.turnstile) return;
+  tsWidget=turnstile.render(box,{sitekey:TS_SITEKEY,size:"flexible",callback:t=>{tsToken=t;},"expired-callback":()=>{tsToken="";},"error-callback":()=>{tsToken="";}});
+}
+tsLoad();
 async function sb(path,opt={}){
   const r=await fetch(SB_URL+path,{...opt,headers:{apikey:SB_KEY,"Content-Type":"application/json",...(sess?{Authorization:"Bearer "+sess.access_token}:{}),...(opt.headers||{})}});
   const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){}
@@ -484,7 +512,7 @@ async function saveBank(k,v){
 }
 async function doLogin(){
   const email=document.getElementById("uid").value.trim(), password=document.getElementById("pw").value;
-  try{ await afterLogin(await sb("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})})); }
+  try{ tsCheck(); await afterLogin(await sb("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password,...tsMeta()})})); }
   catch(e){ authMsg=e.message; }
   render();
 }
@@ -497,7 +525,8 @@ async function doSignup(){
     if(!email) throw new Error("Please type your email address.");
     if(password.length<6) throw new Error("The password must be at least 6 characters.");
     if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
-    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1"}})});
+    tsCheck();
+    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1"},...tsMeta()})});
     if(r&&r.access_token) await afterLogin(r); else { authMsg="Account created. Check your email to confirm it, then log in."; authView="login"; }
   }catch(e){ authMsg=e.message; }
   render();
@@ -506,7 +535,7 @@ let authView="login", recoveryToken=null;
 async function doRecover(){
   const email=document.getElementById("uid").value.trim();
   if(!email){authMsg="Type your email address first.";render();return;}
-  try{ await sb("/auth/v1/recover?redirect_to="+encodeURIComponent(location.origin+location.pathname),{method:"POST",body:JSON.stringify({email})});
+  try{ tsCheck(); await sb("/auth/v1/recover?redirect_to="+encodeURIComponent(location.origin+location.pathname),{method:"POST",body:JSON.stringify({email,...tsMeta()})});
     authMsg="If that email has an account, we have sent a link to reset the password."; authView="login"; }
   catch(e){ authMsg=e.message; }
   render();
@@ -539,6 +568,7 @@ function loginScreen(){
   <input id="uid" type="email" autocomplete="username">
   <label for="pw">Password</label>
   <input id="pw" type="password" autocomplete="current-password">
+  ${tsBox()}
   <button class="btn" data-a="login">Log in</button>
   <button class="btn ghost" data-a="tosignup">Create account</button>
   <button class="sm" style="margin-top:12px" data-a="forgot">Forgot password?</button>
@@ -554,6 +584,7 @@ function signupScreen(){
   ${fld("semail","Email address","","email")}
   <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" placeholder="At least 6 characters">
   <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>I have read the privacy note and I agree.</span></label>
+  ${tsBox()}
   <button class="btn" data-a="signup">Create account</button>
   <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
 }
@@ -561,6 +592,7 @@ function forgotScreen(){
   return `<div class="card"><h2>Reset your password</h2><p class="sub">Type your email address and we will send you a link.</p>
   ${authMsg?`<div class="banner bad">${authMsg}</div>`:""}
   <label for="uid">Email address</label><input id="uid" type="email" autocomplete="username">
+  ${tsBox()}
   <button class="btn" data-a="sendreset">Send reset link</button>
   <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
 }
@@ -579,6 +611,7 @@ function render(){
   const cust=user&&user.tab==="cust";
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
   document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
+  if(!user) tsMount();
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
