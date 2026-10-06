@@ -95,6 +95,20 @@ input[type=password],input[type=email],input[type=tel]{width:100%;font:inherit;f
 .nfoot a{font-size:13px;color:var(--ink)}
 .badge{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);font-weight:800;font-size:13px;padding:5px 12px 5px 5px;border-radius:999px}
 .bav{width:22px;height:22px;border-radius:50%;background:var(--on-accent);color:var(--accent);display:grid;place-items:center;font-size:12px}
+.seg{flex-wrap:wrap}.seg button{flex:1 1 90px}
+.chatlog{max-height:55vh;min-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px}
+.bub{max-width:82%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.35;word-wrap:break-word;overflow-wrap:anywhere}
+.bub.me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-bottom-right-radius:4px}
+.bub.them{align-self:flex-start;background:var(--bg);border:1px solid var(--line);border-bottom-left-radius:4px}
+.bt{display:block;font-size:11px;opacity:.65;margin-top:2px;text-align:right}
+.chatbar{display:flex;gap:8px;margin-top:10px}
+.chatbar input{flex:1;width:auto;font:inherit;font-size:16px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.chatrow{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;font:inherit;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer}
+.chatmeta{font-size:12px;color:var(--muted);text-align:right;white-space:nowrap}
+.dot{display:inline-block;margin-left:6px;min-width:20px;padding:2px 6px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:800;text-align:center}
+details.privnote{background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px}
+details.privnote summary{cursor:pointer;font-weight:600}
+.chk{display:flex;gap:8px;align-items:flex-start;margin-top:14px;color:var(--ink);font-size:14px}
 </style>
 </head>
 <body>
@@ -110,8 +124,8 @@ const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tab="cust", ownView="due", cancelling=null, user=null, loc=null, locId=null;
 const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver"};
-let cview="home";
-const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},req:false,news:[],vids:[],feedErr:""});
+let cview="home", xtab="main";
+const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},chats:[],thread:null,msgs:[],threadWith:null,unread:0,profile:{},req:false,news:[],vids:[],feedErr:""});
 let ST=blank();
 const tagFor = st => ({placed:["New","bad"],accepted:["Accepted",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""],open:["Waiting for drivers","bad"],requested:["Waiting for driver","bad"],started:["Trip started",""],declined:["Declined",""],completed:["Arrived safely","ok"]}[st]||[st,""]);
 const rpc=(fn,args)=>sb("/rest/v1/rpc/"+fn,{method:"POST",body:JSON.stringify(args)});
@@ -121,7 +135,7 @@ const msgs=()=>(ST.err?`<div class="banner bad">${esc(ST.err)}</div>`:"")+(ST.no
 // ---- loading real data from the database ----
 async function loadAreas(){ ST.areas=await sb("/rest/v1/areas?select=id,name&order=id"); }
 async function loadCust(){
-  ST.shops=locId?await sb(`/rest/v1/shops?select=id,name&area_id=eq.${locId}&order=id`):[];
+  ST.shops=locId?await sb(`/rest/v1/shops?select=id,name,owner_id&area_id=eq.${locId}&order=id`):[];
   ST.mine=await sb(`/rest/v1/orders?select=id,status,cash_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=8`);
   await loadTrips();
 }
@@ -134,7 +148,7 @@ async function loadOwner(){
   ST.shop=sh[0]||null; if(!ST.shop){ST.orders=[];ST.menu=[];ST.due={};ST.stmt=[];return;}
   const id=ST.shop.id, base=`/rest/v1/orders?shop_id=eq.${id}`;
   const r=await Promise.all([
-    sb(base+"&select=id,status,cash_cents,shop_cents,delivery_address,order_items(name,quantity)&status=in.(placed,accepted)&order=id"),
+    sb(base+"&select=id,status,cash_cents,shop_cents,delivery_address,customer_id,order_items(name,quantity)&status=in.(placed,accepted)&order=id"),
     sb(`/rest/v1/menu_items?select=id,name,shop_price_cents,app_price_cents&shop_id=eq.${id}&order=id`),
     sb(`/rest/v1/shop_amount_due?select=*&shop_id=eq.${id}`),
     sb(base+"&select=id,cash_cents,fee_cents,credit_cents,net_due_cents&status=eq.delivered&payment_id=is.null&order=id")]);
@@ -187,6 +201,14 @@ function grabFrame(src,local){
 async function makeThumb(src,local){          // best effort: a missing thumbnail never stops a post
   try{ const b=await grabFrame(src,local); return await uploadMedia(b,"thumbs"); }catch(e){ return null; }
 }
+async function loadChats(){ ST.chats=await rpc("my_chats",{}); ST.unread=ST.chats.reduce((a,c)=>a+(c.unread||0),0); }
+async function loadThread(){ ST.msgs=ST.thread?await sb(`/rest/v1/chat_messages?select=id,sender_id,body,created_at&thread_id=eq.${ST.thread}&order=id.asc&limit=200`):[]; }
+async function openChat(id){
+  await loadChats(); ST.thread=id; ST.threadWith=ST.chats.find(c=>c.chat_id===id)||{}; await loadThread();
+  if(user.tab==="cust") cview="msgs"; else xtab="msgs";
+  rpc("mark_read",{p_thread:id}).then(loadChats).then(updateBadges).catch(()=>{});
+  setTimeout(()=>{ const l=document.getElementById("chatlog"); if(l) l.scrollTop=l.scrollHeight; },0);
+}
 async function loadMe(){ const m=await sb(`/rest/v1/drivers?select=*&id=eq.${sess.user.id}`); ST.me=m[0]||null; }
 async function loadTrips(){
   ST.trips=await sb(`/rest/v1/transport_requests?select=id,status,from_place,to_place,goods_type,budget_cents,price_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=10`);
@@ -206,7 +228,7 @@ async function loadDriver(){
     sb(`/rest/v1/driver_routes?select=id,from_place,to_place,price_cents&driver_id=eq.${id}&order=from_place`),
     sb(`/rest/v1/transport_requests?select=id,from_place,to_place,goods_type,description,when_text,budget_cents&status=eq.open&order=id`),
     sb(`/rest/v1/transport_offers?select=request_id,price_cents,status&driver_id=eq.${id}`),
-    sb(`/rest/v1/transport_requests?select=id,status,from_place,to_place,goods_type,description,when_text,price_cents&chosen_driver_id=eq.${id}&status=in.(accepted,started)&order=id`),
+    sb(`/rest/v1/transport_requests?select=id,status,from_place,to_place,goods_type,description,when_text,price_cents,customer_id&chosen_driver_id=eq.${id}&status=in.(accepted,started)&order=id`),
     sb(`/rest/v1/driver_amount_due?select=*&driver_id=eq.${id}`)]);
   ST.me=r[0][0]||null; ST.myRoutes=r[1]; ST.openReqs=r[2]; ST.myOffers=r[3]; ST.jobs=r[4]; ST.dDue=r[5][0]||{}; ST.contacts={};
   if(ST.jobs.length){ const c=await sb(`/rest/v1/transport_contacts?select=request_id,pickup_text,phone&request_id=in.(${ST.jobs.map(j=>j.id).join(",")})`); c.forEach(x=>{ST.contacts[x.request_id]=x;}); }
@@ -232,7 +254,7 @@ function food(){
   const mine=ST.mine.map(o=>{const t=tagFor(o.status);return `<div class="row"><span>Order #${o.id} · ${R(o.cash_cents)}</span><span class="tag ${t[1]}">${t[0]}</span></div>`}).join("");
   const hist=mine?`<div class="card"><h2>Your orders</h2>${mine}</div>`:"";
   if(!ST.shop){
-    const list=ST.shops.map(s=>`<div class="row"><b>${esc(s.name)}</b><button class="sm" data-a="shop" data-id="${s.id}">Order</button></div>`).join("");
+    const list=ST.shops.map(s=>`<div class="row"><b>${esc(s.name)}</b><span><button class="sm" data-a="chatwith" data-v="${s.owner_id}">Message</button> <button class="sm" data-a="shop" data-id="${s.id}">Order</button></span></div>`).join("");
     return `<h1>Shops in ${esc(loc)}</h1><p class="sub">You pay cash when your order arrives.</p>${msgs()}<div class="card">${list||"<small>No shops are open in this area right now.</small>"}</div>${hist}`;
   }
   const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*i.app_price_cents,0);
@@ -268,9 +290,25 @@ function newsSection(){
 function feed(){
   return (navigator.onLine===false?'<div class="banner bad">You are offline. Showing the last saved updates. Videos need the internet.</div>':"")+videoBar()+newsSection();
 }
+const roleLabel=r=>({customer:"Customer",owner:"Shop",driver:"Driver",admin:"Support"}[r]||"");
+const mbadge=()=>`<span class="mbadge">${ST.unread?" ("+ST.unread+")":""}</span>`;
+function updateBadges(){ document.querySelectorAll(".mbadge").forEach(b=>{ b.textContent=ST.unread?" ("+ST.unread+")":""; }); }
+const logHtml=()=>ST.msgs.length?ST.msgs.map(m=>`<div class="bub ${m.sender_id===sess.user.id?"me":"them"}">${esc(m.body).replace(/\n/g,"<br>")}<span class="bt">${new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span></div>`).join(""):"<small>No messages yet. Say hello.</small>";
+const chatRows=()=>ST.chats.map(c=>`<button class="chatrow" data-a="openchat" data-id="${c.chat_id}"><div><b>${esc(c.with_name)}</b> <span class="tag">${esc(roleLabel(c.with_role))}</span><br><small>${esc((c.last_body||"").slice(0,70))}</small></div><div class="chatmeta">${ago(c.last_at)}${c.unread?`<span class="dot">${c.unread}</span>`:""}</div></button>`).join("")||'<div class="card"><small>No messages yet. To start one, tap Message on a shop, a driver, an order or a trip.</small></div>';
+function messagesScreen(){
+  if(ST.thread){ const w=ST.threadWith||{};
+    return `<button class="sm" data-a="closechat">← Back</button><h1 style="margin-top:8px">${esc(w.with_name||"Chat")}</h1><p class="sub">${esc(roleLabel(w.with_role))}</p>${msgs()}
+    <div class="card"><div id="chatlog" class="chatlog">${logHtml()}</div><div class="chatbar"><input id="chatin" type="text" maxlength="1000" placeholder="Type a message" autocomplete="off" aria-label="Message"><button class="btn" style="width:auto;margin:0;padding:12px 18px" data-a="send">Send</button></div></div>`; }
+  return `<h1>Messages</h1><p class="sub">Chat with shops, drivers and support about an order or a trip.</p>${msgs()}<div id="chatlist">${chatRows()}</div>${user.tab!=="adm"?'<button class="btn ghost" data-a="support">Contact support</button>':""}<div class="note">Be polite. Never send money or passwords in a chat. Customers cannot message other customers.</div>`;
+}
+function msgTabs(){
+  const main={own:"My shop",drv:"My jobs",adm:"Admin"}[user.tab];
+  return `<div class="seg" role="tablist">${[["main",main],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${xtab===k}" data-a="xtab" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
+}
 function customer(){
-  const seg=`<div class="seg" role="tablist">${[["home","Home"],["food","Order food"],["drive","Request a driver"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}</button>`).join("")}</div>`;
+  const seg=`<div class="seg" role="tablist">${[["home","Home"],["food","Order food"],["drive","Request a driver"],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
+  if(cview==="msgs") return seg+messagesScreen();
   return seg+(cview==="home"?feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
@@ -278,8 +316,8 @@ function driveTab(){
   const trips=ST.trips.map(t=>{
     const g=tagFor(t.status), offs=ST.offers.filter(o=>o.request_id===t.id), chosen=offs.find(o=>o.status==="chosen"); let body="";
     if(t.status==="open") body=offs.length?offs.map(o=>{const ok=t.budget_cents&&o.price_cents<=t.budget_cents;
-      return `<div class="note">${person(o.drivers||{})}<div class="row"><b>${R(o.price_cents)}</b>${ok?'<span class="tag ok">Within your budget</span>':""}</div><button class="btn" data-a="choose" data-id="${t.id}" data-v="${o.driver_id}">Choose this driver</button></div>`}).join(""):'<div class="note">No driver has accepted yet. Tap Refresh in a little while.</div>';
-    else if(chosen) body=`<div class="note">${person(chosen.drivers||{})}<div class="row"><span>Pay the driver in cash</span><b>${R(t.price_cents)}</b></div></div>`;
+      return `<div class="note">${person(o.drivers||{})}<div class="row"><b>${R(o.price_cents)}</b>${ok?'<span class="tag ok">Within your budget</span>':""}</div><button class="sm" data-a="chatwith" data-v="${o.driver_id}">Message driver</button><button class="btn" data-a="choose" data-id="${t.id}" data-v="${o.driver_id}">Choose this driver</button></div>`}).join(""):'<div class="note">No driver has accepted yet. Tap Refresh in a little while.</div>';
+    else if(chosen) body=`<div class="note">${person(chosen.drivers||{})}<div class="row"><span>Pay the driver in cash</span><b>${R(t.price_cents)}</b></div><button class="sm" data-a="chatwith" data-v="${chosen.driver_id}">Message driver</button></div>`;
     const act=(t.status==="accepted"||t.status==="started")?`<button class="btn" data-a="arrived" data-id="${t.id}">I have arrived safely</button>`:"";
     const can=(t.status==="open"||t.status==="accepted")?(cancelling===t.id?`<select id="why"><option>Changed my mind</option><option>Driver not answering</option><option>Found another driver</option></select><button class="btn ghost" data-a="docanceltrip" data-id="${t.id}">Confirm cancel</button>`:`<button class="btn ghost" data-a="canceltrip" data-id="${t.id}">Cancel</button>`):"";
     return `<div class="card"><div class="row"><b>${esc(t.from_place)} → ${esc(t.to_place)}</b><span class="tag ${g[1]}">${g[0]}</span></div><small>${esc(t.goods_type)}${t.budget_cents?" · your budget "+R(t.budget_cents):""}</small>${body}${act}${can}</div>`}).join("");
@@ -313,7 +351,7 @@ function driver(){
     return `<div class="card"><div class="row"><b>${esc(r.from_place)} → ${esc(r.to_place)}</b><b>${rt?R(rt.price_cents):""}</b></div><small>${esc(r.goods_type)}: ${esc(r.description||"")}<br>When: ${esc(r.when_text||"-")}${r.budget_cents?"<br>Customer budget: "+R(r.budget_cents):""}</small>${offered.has(r.id)?'<div class="note">You accepted. Waiting for the customer to choose.</div>':`<button class="btn" data-a="offer" data-id="${r.id}">Accept at ${R(rt?rt.price_cents:0)}</button>`}</div>`}).join("");
   const jobs=ST.jobs.map(j=>{const g=tagFor(j.status), c=ST.contacts[j.id]||{};
     const act=j.status==="accepted"?`<button class="btn" data-a="jstart" data-id="${j.id}">Start trip</button>`:'<div class="note">Trip started. It is finished when the customer taps that they have arrived.</div>';
-    return `<div class="card"><div class="row"><b>${esc(j.from_place)} → ${esc(j.to_place)} · ${R(j.price_cents)}</b><span class="tag ${g[1]}">${g[0]}</span></div><p style="margin:4px 0">${esc(j.goods_type)}: ${esc(j.description||"")}</p><small>Pick up: ${esc(c.pickup_text||"")}<br>When: ${esc(j.when_text||"-")}<br>Customer: <a href="tel:${esc(c.phone||"")}">${esc(c.phone||"")}</a></small>${act}</div>`}).join("");
+    return `<div class="card"><div class="row"><b>${esc(j.from_place)} → ${esc(j.to_place)} · ${R(j.price_cents)}</b><span class="tag ${g[1]}">${g[0]}</span></div><p style="margin:4px 0">${esc(j.goods_type)}: ${esc(j.description||"")}</p><small>Pick up: ${esc(c.pickup_text||"")}<br>When: ${esc(j.when_text||"-")}<br>Customer: <a href="tel:${esc(c.phone||"")}">${esc(c.phone||"")}</a></small> <button class="sm" data-a="chatwith" data-v="${j.customer_id}">Message customer</button>${act}</div>`}).join("");
   const routes=ST.myRoutes.map(p=>`<div class="row"><span>${esc(p.from_place)} → ${esc(p.to_place)}</span><span><b>${R(p.price_cents)}</b> <button class="sm" data-a="delroute" data-id="${p.id}">Remove</button></span></div>`).join("");
   return `<h1>${esc(me.full_name)}</h1><p class="sub">Trips are paid weekly.</p>${bn}${msgs()}
   <div class="card"><h2>Balance to pay</h2><div class="row"><span>Trips finished</span><b>${d.jobs_completed||0}</b></div>
@@ -338,7 +376,7 @@ function owner(){
     const cr=Math.round(o.cash_cents*0.05), net=(o.cash_cents-o.shop_cents)-cr; let act="";
     if(cancelling===o.id) act=`<select id="why"><option>Customer not answering</option><option>Out of stock</option><option>Shop closed</option><option>Too far to deliver</option></select><button class="btn ghost" data-a="docancel" data-id="${o.id}">Confirm cancel</button>`;
     else act=(o.status==="placed"?`<button class="btn" data-a="accept" data-id="${o.id}">Accept order</button>`:`<button class="btn" data-a="deliver" data-id="${o.id}">Delivered — cash collected</button>`)+`<button class="btn ghost" data-a="cancel" data-id="${o.id}">Cancel</button>`;
-    return `<div class="card"><div class="row"><b>Order #${o.id}</b><span class="tag ${t[1]}">${t[0]}</span></div><p style="margin:4px 0">${what}</p><p style="margin:4px 0"><small>Deliver to: ${esc(o.delivery_address)}</small></p>
+    return `<div class="card"><div class="row"><b>Order #${o.id}</b><span class="tag ${t[1]}">${t[0]}</span></div><p style="margin:4px 0">${what}</p><p style="margin:4px 0"><small>Deliver to: ${esc(o.delivery_address)}</small> <button class="sm" data-a="chatwith" data-v="${o.customer_id}">Message customer</button></p>
       <p class="note" style="margin:6px 0">Collect <b>${R(o.cash_cents)}</b> cash. You keep ${R(o.shop_cents+cr)}. You owe ${R(net)}.</p>${act}</div>`;}).join("");
   const prices=ST.menu.map(i=>`<div class="row"><span>${esc(i.name)}</span><span>Shop R <input type="number" min="1" step="0.5" value="${i.shop_price_cents/100}" data-a="price" data-id="${i.id}" aria-label="Shop price for ${esc(i.name)}"> → app <b>${R(i.app_price_cents)}</b></span></div>`).join("");
   return `<h1>${esc(sh.name)}</h1><p class="sub">Pay on the 1st of every month.</p>${bn}${msgs()}
@@ -428,10 +466,10 @@ async function sb(path,opt={}){
 }
 async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
-  const p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id);
+  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
   const role=(p&&p[0]&&p[0].role)||"customer";
-  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; loc=null; authMsg="";
-  try{ await loadAreas(); if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } }catch(e){ ST.err=e.message; }
+  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; xtab="main"; loc=null; locId=null; authMsg=""; ST.profile=(p&&p[0])||{}; if(ST.profile.phone) ST.form.phone=ST.form.phone||ST.profile.phone;
+  try{ await loadAreas(); const ar=ST.areas.find(x=>x.name===ST.profile.area_name); if(role==="customer"&&ar){ loc=ar.name; locId=ar.id; } if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } try{ await loadChats(); }catch(e){} }catch(e){ ST.err=e.message; }
   if(role!=="customer") loadBank();
 }
 async function loadBank(){
@@ -451,10 +489,17 @@ async function doLogin(){
   render();
 }
 async function doSignup(){
-  const email=document.getElementById("uid").value.trim(), password=document.getElementById("pw").value;
-  try{ const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password})});
-    if(r&&r.access_token) await afterLogin(r); else authMsg="Account created. Check your email to confirm it, then log in."; }
-  catch(e){ authMsg=e.message; }
+  const f=ST.form, email=(f.semail||"").trim(), password=(document.getElementById("spw")||{}).value||"", phone=(f.sphone||"").replace(/[\s-]/g,"");
+  try{
+    if(!(f.sname||"").trim()||!(f.ssurname||"").trim()) throw new Error("Please type your first name and surname.");
+    if(!f.sarea) throw new Error("Please choose your location.");
+    if(!/^(\+27|0)[0-9]{9}$/.test(phone)) throw new Error("Please type a valid cell number, for example 081 234 5678.");
+    if(!email) throw new Error("Please type your email address.");
+    if(password.length<6) throw new Error("The password must be at least 6 characters.");
+    if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
+    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1"}})});
+    if(r&&r.access_token) await afterLogin(r); else { authMsg="Account created. Check your email to confirm it, then log in."; authView="login"; }
+  }catch(e){ authMsg=e.message; }
   render();
 }
 let authView="login", recoveryToken=null;
@@ -495,9 +540,22 @@ function loginScreen(){
   <label for="pw">Password</label>
   <input id="pw" type="password" autocomplete="current-password">
   <button class="btn" data-a="login">Log in</button>
-  <button class="btn ghost" data-a="signup">Create a customer account</button>
+  <button class="btn ghost" data-a="tosignup">Create account</button>
   <button class="sm" style="margin-top:12px" data-a="forgot">Forgot password?</button>
   <div class="note">Shop owners and admin get their access from Inanda Business Web. Log in with the email you were given.</div></div>`;
+}
+function signupScreen(){
+  const areas=[["","Choose your location"],...ST.areas.map(a=>[a.name,a.name])];
+  return `<div class="card"><h2>Create account</h2>
+  ${authMsg?`<div class="banner bad">${esc(authMsg)}</div>`:""}
+  ${fld("sname","First name")}${fld("ssurname","Surname")}${sel("sarea","Your location in Inanda",areas)}${fld("sphone","Cell number","e.g. 081 234 5678","tel")}
+  <details class="privnote" open><summary>Privacy note: how we use your cell number</summary>
+    <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. We keep your details safely, and you can ask us to delete them.</p></details>
+  ${fld("semail","Email address","","email")}
+  <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+  <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>I have read the privacy note and I agree.</span></label>
+  <button class="btn" data-a="signup">Create account</button>
+  <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
 }
 function forgotScreen(){
   return `<div class="card"><h2>Reset your password</h2><p class="sub">Type your email address and we will send you a link.</p>
@@ -520,12 +578,12 @@ function areaScreen(){
 function render(){
   const cust=user&&user.tab==="cust";
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
-  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):tab==="cust"?customer():tab==="own"?owner():tab==="drv"?driver():admin();
+  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
   login:doLogin, signup:doSignup, sendreset:doRecover, setpw:doSetPw,
-  forgot:()=>{authView="forgot";authMsg="";}, tologin:()=>{authView="login";authMsg="";},
+  forgot:()=>{authView="forgot";authMsg="";}, tosignup:()=>{authView="signup";authMsg="";}, tologin:()=>{authView="login";authMsg="";},
   logout:()=>{user=null;loc=null;locId=null;sess=null;BANK=null;ST=blank();localStorage.removeItem("inanda_sess");},
   area:()=>{loc=null;locId=null;ST.shop=null;},
   loc:el=>go(async()=>{loc=el.dataset.v;locId=+el.dataset.id;ST.shop=null;await loadCust();}),
@@ -543,7 +601,7 @@ const H={
   docancel:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"cancelled",p_reason:document.getElementById("why").value});cancelling=null;await loadOwner();}),
   pay:()=>{ownView="pay";}, stmt:()=>{ownView="stmt";}, back:()=>{ownView="due";},
   paid:()=>go(async()=>{await rpc("submit_payment",{});ownView="due";await reload();ST.note="Payment submitted. We will confirm it when we see it in our account.";}),
-  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=false;if(cview==="drive")await loadTrips();if(cview==="home")await loadFeed();if(cview==="apply")await loadMe();}),
+  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=false;ST.thread=null;ST.msgs=[];if(cview==="msgs")await loadChats();if(cview==="drive")await loadTrips();if(cview==="home")await loadFeed();if(cview==="apply")await loadMe();}),
   newreq:()=>{ST.req=true;}, noreq:()=>{ST.req=false;},
   sendreq:()=>go(async()=>{const f=ST.form, b=Math.round(parseFloat(f.budget)*100);
     await rpc("request_transport",{p_from:pl("rfrom"),p_to:pl("rto"),p_goods:f.goods||"furniture",p_description:f.desc||"",p_pickup:f.pickup||"",p_when:f.when||"",p_phone:f.phone||"",p_budget_cents:b>0?b:null});
@@ -569,6 +627,17 @@ const H={
     else await sb("/rest/v1/driver_routes",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({driver_id:sess.user.id,from_place:from,to_place:to,price_cents:cents})});
     f.pprice=""; await loadDriver(); ST.note="Route price saved."; }),
   delroute:(el,id)=>go(async()=>{await sb("/rest/v1/driver_routes?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadDriver();}),
+  xtab:el=>go(async()=>{xtab=el.dataset.v; ST.thread=null; ST.msgs=[]; if(xtab==="msgs") await loadChats();}),
+  chatwith:el=>go(async()=>{ await openChat(await rpc("start_chat",{p_other:el.dataset.v})); }),
+  support:()=>go(async()=>{ await openChat(await rpc("support_chat",{})); }),
+  openchat:(el,id)=>go(()=>openChat(id)),
+  closechat:()=>go(async()=>{ ST.thread=null; ST.msgs=[]; ST.threadWith=null; await loadChats(); }),
+  send:async()=>{
+    const i=document.getElementById("chatin"), t=i?i.value.trim():""; if(!t) return;
+    try{ await rpc("send_message",{p_thread:ST.thread,p_body:t}); i.value=""; await loadThread();
+      const l=document.getElementById("chatlog"); if(l){ l.innerHTML=logHtml(); l.scrollTop=l.scrollHeight; } loadChats().then(updateBadges).catch(()=>{}); }
+    catch(e){ ST.err=e.message; render(); window.scrollTo({top:0,behavior:"smooth"}); }
+  },
   postnews:()=>go(async()=>{const f=ST.form;
     if(!(f.ntitle||"").trim()||!(f.nbody||"").trim()) throw new Error("Add a headline and the news text.");
     if(!(f.nsrc||"").trim()) throw new Error("Say who reported it, for example Chris.");
@@ -617,6 +686,7 @@ document.body.addEventListener("change",e=>{
   const t=e.target, a=t.dataset.a;
   if(a==="bank"){ if(BANK){BANK[t.dataset.k]=t.value; saveBank(t.dataset.k,t.value);} }
   else if(a==="addr"){ ST.address=t.value; }
+  else if(a==="chk"){ ST.form[t.dataset.k]=t.checked; }
   else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt"].includes(t.dataset.k)) render(); }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
@@ -632,11 +702,28 @@ document.addEventListener("click",e=>{
   const c=e.target.closest(".vcard"); if(c&&!e.target.closest("video")) playCard(c);
   const b=e.target.closest(".nmore"); if(b){ const p=b.previousElementSibling, open=!p.classList.toggle("clamp"); b.textContent=open?"Show less":"Read more"; }
 });
-document.addEventListener("keydown",e=>{ if((e.key==="Enter"||e.key===" ")&&e.target.classList&&e.target.classList.contains("vcard")){ e.preventDefault(); playCard(e.target); } });
+document.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey&&e.target.id==="chatin"){ e.preventDefault(); H.send(); return; } if((e.key==="Enter"||e.key===" ")&&e.target.classList&&e.target.classList.contains("vcard")){ e.preventDefault(); playCard(e.target); } });
 if("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message",e=>{
   if(e.data&&e.data.type==="feed-updated"&&user&&!document.querySelector(".vcard.playing")) loadFeed().then(()=>{ if(user&&cview==="home"&&tab==="cust") render(); });
 });
 addEventListener("online",()=>{ if(user) go(reload); }); addEventListener("offline",()=>{ if(user) render(); });
+loadAreas().then(()=>{ if(!user) render(); }).catch(()=>{});
+let pollBusy=false, tick=0;
+const inMsgs=()=>user&&(user.tab==="cust"?cview==="msgs":xtab==="msgs");
+async function pollChat(){
+  if(!user||!sess||document.visibilityState==="hidden"||pollBusy) return; pollBusy=true;
+  try{
+    const last=ST.msgs.length?ST.msgs[ST.msgs.length-1].id:0;
+    await loadChats();
+    if(ST.thread&&inMsgs()){ await loadThread(); const now=ST.msgs.length?ST.msgs[ST.msgs.length-1].id:0;
+      if(now!==last){ const l=document.getElementById("chatlog"); if(l){ const near=l.scrollHeight-l.scrollTop-l.clientHeight<80; l.innerHTML=logHtml(); if(near) l.scrollTop=l.scrollHeight; } rpc("mark_read",{p_thread:ST.thread}).catch(()=>{}); } }
+    else if(inMsgs()){ const c=document.getElementById("chatlist"); if(c) c.innerHTML=chatRows(); }
+    updateBadges();
+  }catch(e){}
+  pollBusy=false;
+}
+setInterval(()=>{ tick++; if((ST.thread&&inMsgs())||tick%3===0) pollChat(); },10000);
 document.getElementById("logo").innerHTML=LOGO; render(); restore();
 
 // ---- PWA: install button and service worker ----
