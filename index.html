@@ -115,7 +115,7 @@ const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:
 let ST=blank();
 const tagFor = st => ({placed:["New","bad"],accepted:["Accepted",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""],open:["Waiting for drivers","bad"],requested:["Waiting for driver","bad"],started:["Trip started",""],declined:["Declined",""],completed:["Arrived safely","ok"]}[st]||[st,""]);
 const rpc=(fn,args)=>sb("/rest/v1/rpc/"+fn,{method:"POST",body:JSON.stringify(args)});
-async function go(fn){ ST.err=""; ST.note=""; try{await fn();}catch(e){ST.err=e.message;} render(); }
+async function go(fn){ ST.err=""; ST.note=""; try{await fn();}catch(e){ST.err=e.message;ST.note="";} render(); if(ST.err||ST.note) window.scrollTo({top:0,behavior:"smooth"}); }
 const msgs=()=>(ST.err?`<div class="banner bad">${esc(ST.err)}</div>`:"")+(ST.note?`<div class="banner ok">${esc(ST.note)}</div>`:"");
 
 // ---- loading real data from the database ----
@@ -149,11 +149,12 @@ async function loadAdmin(){
 }
 const safeUrl=u=>/^https?:\/\//i.test(u||"")?u:"";
 const ago=iso=>{const m=Math.round((Date.now()-new Date(iso))/6e4); if(m<1)return "just now"; if(m<60)return m+" min ago"; const h=Math.round(m/60); if(h<24)return h+(h===1?" hour ago":" hours ago"); const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");};
-async function loadFeed(){
+async function loadFeed(fresh){
+  const o=fresh?{cache:"no-store"}:{};
   try{
     const r=await Promise.all([
-      sb("/rest/v1/inanda_news?select=id,title,body,image_url,source_name,source_url,posted_at&is_published=eq.true&order=posted_at.desc&limit=6"),
-      sb("/rest/v1/funny_videos?select=id,title,video_url,poster_url,created_at&is_published=eq.true&order=created_at.desc&limit=12")]);
+      sb("/rest/v1/inanda_news?select=id,title,body,image_url,source_name,source_url,posted_at&is_published=eq.true&order=posted_at.desc&limit=6",o),
+      sb("/rest/v1/funny_videos?select=id,title,video_url,poster_url,created_at&is_published=eq.true&order=created_at.desc&limit=12",o)]);
     ST.news=r[0]; ST.vids=r[1]; ST.feedErr="";
   }catch(e){ ST.feedErr=navigator.onLine===false?"offline":e.message; }
 }
@@ -202,7 +203,7 @@ async function upload(bucket,file,name){
     throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return path;
 }
-const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed()]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed()]);
+const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed(true)]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed(true)]);
 
 // ---- screens ----
 function food(){
@@ -372,7 +373,7 @@ function admin(){
     <label for="n_file">Or upload a picture</label><input id="n_file" type="file" accept="image/*"><button class="btn" data-a="postnews">Post news</button>
     ${ST.news.map(n=>`<div class="row"><span>${esc(n.title)}</span><button class="sm" data-a="delnews" data-id="${n.id}">Delete</button></div>`).join("")}</div>
     <div class="card"><b>Funny video</b>${fld("vtitle","Title")}${fld("vurl","Video link (direct .mp4 link)","https://....mp4")}
-    <label for="v_file">Or upload a short video (under 25 MB)</label><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
+    <label for="v_file">Or upload a short video</label><small>MP4 or WebM, under 25 MB. Clips under 30 seconds work best.</small><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
     ${ST.vids.map(v=>`<div class="row"><span>${esc(v.title)}</span><button class="sm" data-a="delvid" data-id="${v.id}">Delete</button></div>`).join("")}</div>`;
   return `<h1>Admin</h1><p class="sub">Drivers, payments and shops.</p>${msgs()}
   ${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
@@ -551,15 +552,21 @@ const H={
     if(!(f.nsrc||"").trim()) throw new Error("Say who reported it, for example Chris.");
     let img=(f.nimg||"").trim(); const file=document.getElementById("n_file").files[0]; if(file) img=await uploadMedia(file,"news");
     await sb("/rest/v1/inanda_news",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.ntitle.trim(),body:f.nbody.trim(),image_url:img||null,source_name:f.nsrc.trim(),source_url:(f.nurl||"").trim()||null})});
-    Object.assign(f,{ntitle:"",nbody:"",nimg:"",nurl:""}); await loadFeed(); ST.note="News posted."; }),
+    Object.assign(f,{ntitle:"",nbody:"",nimg:"",nurl:""}); await loadFeed(true); ST.note="News posted."; }),
   postvideo:()=>go(async()=>{const f=ST.form;
     if(!(f.vtitle||"").trim()) throw new Error("Add a title for the video.");
-    let url=(f.vurl||"").trim(); const file=document.getElementById("v_file").files[0]; if(file) url=await uploadMedia(file,"videos");
+    let url=(f.vurl||"").trim(); const file=document.getElementById("v_file").files[0];
+    if(file){
+      if(!/^video\/(mp4|webm)$/.test(file.type)) throw new Error("Please use an MP4 or WebM video. Other types, such as .mov or .mkv, will not work.");
+      if(file.size>25*1024*1024) throw new Error("That video is "+Math.round(file.size/1048576)+" MB. The limit is 25 MB. Choose a shorter clip or compress it first.");
+      ST.note="Uploading your video… please keep this page open."; render(); window.scrollTo({top:0});
+      url=await uploadMedia(file,"videos"); ST.note="";
+    }
     if(!url) throw new Error("Paste a video link or choose a video file.");
     await sb("/rest/v1/funny_videos",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.vtitle.trim(),video_url:url})});
-    Object.assign(f,{vtitle:"",vurl:""}); await loadFeed(); ST.note="Video added."; }),
-  delnews:(el,id)=>go(async()=>{await sb("/rest/v1/inanda_news?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed();}),
-  delvid:(el,id)=>go(async()=>{await sb("/rest/v1/funny_videos?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed();}),
+    Object.assign(f,{vtitle:"",vurl:""}); await loadFeed(true); ST.note="Video added."; }),
+  delnews:(el,id)=>go(async()=>{await sb("/rest/v1/inanda_news?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
+  delvid:(el,id)=>go(async()=>{await sb("/rest/v1/funny_videos?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
   approve:el=>go(async()=>{await rpc("approve_driver",{p_driver:el.dataset.v});await loadAdmin();}),
   payconfirm:(el,id)=>go(async()=>{await rpc("confirm_payment",{p_payment:id});await loadAdmin();}),
   payreject:(el,id)=>go(async()=>{await rpc("reject_payment",{p_payment:id});await loadAdmin();}),

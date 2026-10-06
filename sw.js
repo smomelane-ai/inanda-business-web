@@ -1,6 +1,6 @@
 // Service worker for Inanda Business Web.
 // Change VERSION whenever you change any file, so phones pick up the new version.
-const VERSION = "inanda-v8";
+const VERSION = "inanda-v9";
 const FEED_CACHE = "inanda-feed-v1";                       // news text, video list and news pictures (kept between versions)
 const SB_HOST = "zcqkydqrsriijjwaajjw.supabase.co";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"];
@@ -52,7 +52,13 @@ self.addEventListener("fetch", e => {
   if (isVideo(r, u)) return;                                  // 1. videos: straight to the network, never cached
 
   if (u.hostname === SB_HOST) {
-    if (/^\/rest\/v1\/(inanda_news|funny_videos)/.test(u.pathname)) { e.respondWith(swr(e)); return; }          // 2. news text + video list
+    if (/^\/rest\/v1\/(inanda_news|funny_videos)/.test(u.pathname)) {                                         // 2. news text + video list
+      if (r.cache === "no-store" || r.cache === "reload") {                                                    // "Refresh" or just posted: ask the network first
+        e.respondWith(fetch(r).then(res => { if (res.ok) { const c = res.clone(); caches.open(FEED_CACHE).then(ca => ca.put(r.url, c)); } return res; }));
+        return;
+      }
+      e.respondWith(swr(e)); return;
+    }
     if (r.destination === "image" && u.pathname.startsWith("/storage/v1/object/public/inanda-media/")) { e.respondWith(swr(e, 60)); return; } // 3. news pictures
     return;                                                   // everything else on Supabase (logins, orders, payments) is never cached
   }
