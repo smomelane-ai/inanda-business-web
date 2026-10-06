@@ -461,13 +461,14 @@ let sess=null, BANK=null, authMsg="";
 
 // ---- Cloudflare Turnstile (CAPTCHA) ----
 // Paste your Turnstile SITE key between the quotes below. While it is empty, the app runs without CAPTCHA.
-const TS_SITEKEY="";
-let tsToken="", tsWidget=null;
+const TS_SITEKEY="0x4AAAAAAFPxMdoVnkOW5BpP";
+let tsToken="", tsWidget=null, tsFailed=false;
 const tsBox=()=>TS_SITEKEY?'<div id="tsbox" style="margin:14px 0 4px;min-height:65px"></div>':"";
 const tsMeta=()=>TS_SITEKEY?{gotrue_meta_security:{captcha_token:tsToken}}:{};
 function tsCheck(){
   if(!TS_SITEKEY) return;
-  if(!window.turnstile){ tsLoad(); throw new Error("The security check could not load. Check your internet connection and try again."); }
+  if(!window.turnstile){ tsLoad(); return; }   // check not available: let the server decide
+  if(tsFailed) return;                          // check could not start: let the server decide
   if(!tsToken) throw new Error("Please wait a moment for the security check to finish, then try again.");
 }
 function tsLoad(){
@@ -478,18 +479,20 @@ function tsLoad(){
   document.head.appendChild(sc);
 }
 function tsMount(){
-  tsToken="";
+  tsToken=""; tsFailed=false;
   if(tsWidget!==null&&window.turnstile){ try{turnstile.remove(tsWidget);}catch(e){} }
   tsWidget=null;
   const box=document.getElementById("tsbox");
   if(!TS_SITEKEY||!box||!window.turnstile) return;
-  tsWidget=turnstile.render(box,{sitekey:TS_SITEKEY,size:"flexible",callback:t=>{tsToken=t;},"expired-callback":()=>{tsToken="";},"error-callback":()=>{tsToken="";}});
+  try{ tsWidget=turnstile.render(box,{sitekey:TS_SITEKEY,size:"flexible",callback:t=>{tsToken=t;},"expired-callback":()=>{tsToken="";},"error-callback":()=>{tsToken="";tsFailed=true;}}); }
+  catch(e){ tsFailed=true; }
 }
 tsLoad();
 async function sb(path,opt={}){
   const r=await fetch(SB_URL+path,{...opt,headers:{apikey:SB_KEY,"Content-Type":"application/json",...(sess?{Authorization:"Bearer "+sess.access_token}:{}),...(opt.headers||{})}});
   const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){}
-  if(!r.ok) throw new Error((j&&(j.msg||j.error_description||j.message))||"Something went wrong. Please try again.");
+  if(!r.ok){ const m=(j&&(j.msg||j.error_description||j.message))||"Something went wrong. Please try again.";
+    throw new Error(/captcha/i.test(m)?"The security check did not pass. Wait a moment for it to finish, then try again.":m); }
   return j;
 }
 async function afterLogin(s){
