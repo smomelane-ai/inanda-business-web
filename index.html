@@ -139,10 +139,18 @@ async function loadDriver(){
     sb(`/rest/v1/driver_amount_due?select=*&driver_id=eq.${id}`)]);
   ST.me=r[0][0]||null; ST.myPrices=r[1]; ST.jobs=r[2]; ST.dDue=r[3][0]||{};
 }
+async function shrink(file){
+  try{ const bmp=await createImageBitmap(file), k=Math.min(1,1280/Math.max(bmp.width,bmp.height));
+    const c=document.createElement("canvas"); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+    c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+    const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",0.8)); return blob||file;
+  }catch(e){ return file; }
+}
 async function upload(bucket,file,name){
-  const path=sess.user.id+"/"+name;
-  const r=await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"x-upsert":"true","Content-Type":file.type||"image/jpeg"},body:file});
-  if(!r.ok) throw new Error("Could not upload the picture. Try a smaller one.");
+  const body=await shrink(file), path=sess.user.id+"/"+name;
+  const r=await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"x-upsert":"true","Content-Type":body.type||"image/jpeg"},body});
+  if(!r.ok){ let m=""; try{ m=(await r.json()).message||""; }catch(e){}
+    throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return path;
 }
 const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?loadAdmin():user.tab==="drv"?loadDriver():Promise.all([loadCust(),cview==="drive"?loadDrivers():0]);
@@ -172,7 +180,7 @@ const person=d=>`<div style="display:flex;gap:12px;align-items:center">${d.photo
 function customer(){
   const seg=`<div class="seg" role="tablist">${[["food","Order food"],["drive","Request a driver"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
-  return seg+(cview==="drive"?driveTab():food())+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
+  return seg+(cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
   if(ST.req) return reqForm();
@@ -412,7 +420,7 @@ function areaScreen(){
 function render(){
   const cust=user&&user.tab==="cust";
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
-  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):(cust&&!loc)?areaScreen():tab==="cust"?customer():tab==="own"?owner():tab==="drv"?driver():admin();
+  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):tab==="cust"?customer():tab==="own"?owner():tab==="drv"?driver():admin();
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
