@@ -165,6 +165,28 @@ async function uploadMedia(file,folder){
   if(!r.ok){ let m=""; try{m=(await r.json()).message||"";}catch(e){} throw new Error("Could not upload"+(m?": "+m:"")+" (code "+r.status+")"); }
   return `${SB_URL}/storage/v1/object/public/inanda-media/${path}`;
 }
+function grabFrame(src,local){
+  return new Promise((resolve,reject)=>{
+    const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.preload=local?"auto":"metadata";
+    if(!local) v.crossOrigin="anonymous";
+    const end=(fn,x)=>{ clearTimeout(t); v.removeAttribute("src"); try{v.load();}catch(e){} fn(x); };
+    const t=setTimeout(()=>end(reject,new Error("timeout")),20000);
+    v.addEventListener("error",()=>end(reject,new Error("cannot read video")));
+    v.addEventListener("loadedmetadata",()=>{ v.currentTime=Math.max(.3,Math.min(1.5,(v.duration||3)*.1)); });
+    v.addEventListener("seeked",()=>{
+      try{
+        const k=Math.min(1,480/Math.max(v.videoWidth,v.videoHeight)), c=document.createElement("canvas");
+        c.width=Math.round(v.videoWidth*k); c.height=Math.round(v.videoHeight*k);
+        c.getContext("2d").drawImage(v,0,0,c.width,c.height);
+        c.toBlob(b=>b?end(resolve,b):end(reject,new Error("no frame")),"image/jpeg",.8);
+      }catch(e){ end(reject,e); }
+    },{once:true});
+    v.src=src;
+  });
+}
+async function makeThumb(src,local){          // best effort: a missing thumbnail never stops a post
+  try{ const b=await grabFrame(src,local); return await uploadMedia(b,"thumbs"); }catch(e){ return null; }
+}
 async function loadMe(){ const m=await sb(`/rest/v1/drivers?select=*&id=eq.${sess.user.id}`); ST.me=m[0]||null; }
 async function loadTrips(){
   ST.trips=await sb(`/rest/v1/transport_requests?select=id,status,from_place,to_place,goods_type,budget_cents,price_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=10`);
@@ -233,7 +255,7 @@ const person=d=>`<div style="display:flex;gap:12px;align-items:center">${d.photo
 const area=(k,l,ph="")=>`<label for="f_${k}">${l}</label><textarea id="f_${k}" rows="5" style="width:100%;font:inherit;font-size:16px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)" data-a="form" data-k="${k}" placeholder="${ph}">${esc(ST.form[k]||"")}</textarea>`;
 function videoBar(){
   if(!ST.vids.length) return "";
-  return `<section aria-label="Funny videos"><div class="sec-h"><h2>Funny corner</h2><span class="muted">Tap to play</span></div><div class="vbar">${ST.vids.map(v=>`<div class="vcard" role="button" tabindex="0" data-src="${esc(safeUrl(v.video_url))}" aria-label="Play ${esc(v.title)}">${safeUrl(v.poster_url)?`<img class="vposter" src="${esc(safeUrl(v.poster_url))}" alt="" loading="lazy">`:""}<div class="vplay"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div><div class="vtitle">${esc(v.title)}</div></div>`).join("")}</div></section>`;
+  return `<section aria-label="Funny videos"><div class="sec-h"><h2>Funny corner</h2><span class="muted">Tap to play</span></div><div class="vbar">${ST.vids.map(v=>`<div class="vcard" role="button" tabindex="0" data-src="${esc(safeUrl(v.video_url))}" aria-label="Play ${esc(v.title)}">${safeUrl(v.poster_url)?`<img class="vposter" src="${esc(safeUrl(v.poster_url))}" alt="" loading="lazy" ${safeUrl(v.poster_url).startsWith(SB_URL)?'crossorigin="anonymous"':""}>`:""}<div class="vplay"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div><div class="vtitle">${esc(v.title)}</div></div>`).join("")}</div></section>`;
 }
 function newsSection(){
   const cards=ST.news.map(n=>{const img=safeUrl(n.image_url), own=img.startsWith(SB_URL), src=safeUrl(n.source_url), nm=n.source_name||"Chris";
@@ -373,7 +395,7 @@ function admin(){
     <label for="n_file">Or upload a picture</label><input id="n_file" type="file" accept="image/*"><button class="btn" data-a="postnews">Post news</button>
     ${ST.news.map(n=>`<div class="row"><span>${esc(n.title)}</span><button class="sm" data-a="delnews" data-id="${n.id}">Delete</button></div>`).join("")}</div>
     <div class="card"><b>Funny video</b>${fld("vtitle","Title")}${fld("vurl","Video link (direct .mp4 link)","https://....mp4")}
-    <label for="v_file">Or upload a short video</label><small>MP4 or WebM, under 25 MB. Clips under 30 seconds work best.</small><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
+    ${ST.vids.some(v=>!v.poster_url)?`<button class="btn ghost" data-a="thumbs">Create thumbnails for ${ST.vids.filter(v=>!v.poster_url).length} video${ST.vids.filter(v=>!v.poster_url).length===1?"":"s"}</button>`:""}<label for="v_file">Or upload a short video</label><small>MP4 or WebM, under 25 MB. Clips under 30 seconds work best.</small><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
     ${ST.vids.map(v=>`<div class="row"><span>${esc(v.title)}</span><button class="sm" data-a="delvid" data-id="${v.id}">Delete</button></div>`).join("")}</div>`;
   return `<h1>Admin</h1><p class="sub">Drivers, payments and shops.</p>${msgs()}
   ${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
@@ -555,16 +577,28 @@ const H={
     Object.assign(f,{ntitle:"",nbody:"",nimg:"",nurl:""}); await loadFeed(true); ST.note="News posted."; }),
   postvideo:()=>go(async()=>{const f=ST.form;
     if(!(f.vtitle||"").trim()) throw new Error("Add a title for the video.");
-    let url=(f.vurl||"").trim(); const file=document.getElementById("v_file").files[0];
+    let url=(f.vurl||"").trim(), poster=null; const file=document.getElementById("v_file").files[0];
     if(file){
       if(!/^video\/(mp4|webm)$/.test(file.type)) throw new Error("Please use an MP4 or WebM video. Other types, such as .mov or .mkv, will not work.");
       if(file.size>25*1024*1024) throw new Error("That video is "+Math.round(file.size/1048576)+" MB. The limit is 25 MB. Choose a shorter clip or compress it first.");
       ST.note="Uploading your video… please keep this page open."; render(); window.scrollTo({top:0});
       url=await uploadMedia(file,"videos"); ST.note="";
-    }
+      try{ const obj=URL.createObjectURL(file); poster=await makeThumb(obj,true); URL.revokeObjectURL(obj); }catch(e){}
+    }else if(url){ poster=await makeThumb(url,false); }
     if(!url) throw new Error("Paste a video link or choose a video file.");
-    await sb("/rest/v1/funny_videos",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.vtitle.trim(),video_url:url})});
+    await sb("/rest/v1/funny_videos",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({title:f.vtitle.trim(),video_url:url,poster_url:poster})});
     Object.assign(f,{vtitle:"",vurl:""}); await loadFeed(true); ST.note="Video added."; }),
+  thumbs:()=>go(async()=>{
+    const todo=ST.vids.filter(v=>!v.poster_url); let ok=0;
+    for(const v of todo){
+      ST.note="Making thumbnails… "+ok+" of "+todo.length; render();
+      const p=await makeThumb(v.video_url,false);
+      if(p){ await sb("/rest/v1/funny_videos?id=eq."+v.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({poster_url:p})}); ok++; }
+    }
+    await loadFeed(true);
+    if(!ok) throw new Error("Could not read those videos here. Delete them and add them again with the Add video button.");
+    ST.note=ok+(ok===1?" thumbnail":" thumbnails")+" created"+(ok<todo.length?", "+(todo.length-ok)+" could not be read.":".");
+  }),
   delnews:(el,id)=>go(async()=>{await sb("/rest/v1/inanda_news?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
   delvid:(el,id)=>go(async()=>{await sb("/rest/v1/funny_videos?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
   approve:el=>go(async()=>{await rpc("approve_driver",{p_driver:el.dataset.v});await loadAdmin();}),
