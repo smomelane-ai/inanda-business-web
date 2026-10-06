@@ -79,10 +79,11 @@ input[type=password],input[type=email],input[type=tel]{width:100%;font:inherit;f
 const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tab="cust", ownView="due", cancelling=null, user=null, loc=null, locId=null;
-const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin"};
-const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:""});
+const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver"};
+let cview="food";
+const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",drivers:[],trips:[],me:null,myPrices:[],jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{},req:null});
 let ST=blank();
-const tagFor = st => ({placed:["New","bad"],accepted:["On its way",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""]}[st]||[st,""]);
+const tagFor = st => ({placed:["New","bad"],accepted:["Accepted",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""],requested:["Waiting for driver","bad"],started:["Trip started",""],declined:["Declined",""],completed:["Arrived safely","ok"]}[st]||[st,""]);
 const rpc=(fn,args)=>sb("/rest/v1/rpc/"+fn,{method:"POST",body:JSON.stringify(args)});
 async function go(fn){ ST.err=""; ST.note=""; try{await fn();}catch(e){ST.err=e.message;} render(); }
 const msgs=()=>(ST.err?`<div class="banner bad">${esc(ST.err)}</div>`:"")+(ST.note?`<div class="banner ok">${esc(ST.note)}</div>`:"");
@@ -92,6 +93,7 @@ async function loadAreas(){ ST.areas=await sb("/rest/v1/areas?select=id,name&ord
 async function loadCust(){
   ST.shops=locId?await sb(`/rest/v1/shops?select=id,name&area_id=eq.${locId}&order=id`):[];
   ST.mine=await sb(`/rest/v1/orders?select=id,status,cash_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=8`);
+  await loadTrips();
 }
 async function loadMenu(shop){
   ST.shop=shop; ST.cart={};
@@ -109,13 +111,44 @@ async function loadOwner(){
   ST.orders=r[0]; ST.menu=r[1]; ST.due=r[2][0]||{}; ST.stmt=r[3];
 }
 async function loadAdmin(){
-  const r=await Promise.all([sb("/rest/v1/shops?select=id,name,status&order=id"),sb("/rest/v1/shop_amount_due?select=*")]);
-  ST.all=r[0].map(s=>({...s,...(r[1].find(d=>d.shop_id===s.id)||{})}));
+  const r=await Promise.all([sb("/rest/v1/shops?select=id,name,status&order=id"),sb("/rest/v1/shop_amount_due?select=*"),
+    sb("/rest/v1/drivers?select=id,full_name,cellphone,vehicle_make,vehicle_colour,plate_number,driver_private(id_number)&status=eq.pending"),
+    sb("/rest/v1/payments?select=id,payer_type,reference,amount_cents&status=eq.pending&order=id"),
+    sb("/rest/v1/transport_requests?select=id,dropoff_place,price_cents,started_at&status=eq.started&order=id")]);
+  ST.all=r[0].map(s=>({...s,...(r[1].find(d=>d.shop_id===s.id)||{})})); ST.pend=r[2]; ST.pays=r[3]; ST.xtrips=r[4];
 }
-const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?loadAdmin():loadCust();
+async function loadMe(){ const m=await sb(`/rest/v1/drivers?select=*&id=eq.${sess.user.id}`); ST.me=m[0]||null; }
+async function loadTrips(){
+  ST.trips=await sb(`/rest/v1/transport_requests?select=id,status,goods_type,dropoff_place,price_cents,drivers(full_name,cellphone,plate_number,vehicle_make,vehicle_colour)&customer_id=eq.${sess.user.id}&order=id.desc&limit=10`);
+}
+async function signPhotos(list){
+  const paths=list.map(d=>d.photo_path).filter(Boolean); if(!paths.length) return;
+  const r=await sb("/storage/v1/object/sign/driver-photos",{method:"POST",body:JSON.stringify({expiresIn:3600,paths})}), m={};
+  (r||[]).forEach(x=>{ if(x.signedURL) m[x.path]=SB_URL+"/storage/v1"+x.signedURL; });
+  list.forEach(d=>{ d.photo=m[d.photo_path]||""; });
+}
+async function loadDrivers(){
+  ST.drivers=await sb("/rest/v1/drivers?select=id,full_name,cellphone,vehicle_make,vehicle_colour,plate_number,vehicle_type,photo_path,driver_prices(place_name,price_cents)&status=eq.approved&order=full_name");
+  await signPhotos(ST.drivers);
+}
+async function loadDriver(){
+  const id=sess.user.id;
+  const r=await Promise.all([sb(`/rest/v1/drivers?select=*&id=eq.${id}`),
+    sb(`/rest/v1/driver_prices?select=id,place_name,price_cents&driver_id=eq.${id}&order=place_name`),
+    sb(`/rest/v1/transport_requests?select=id,status,goods_type,description,pickup_text,dropoff_place,when_text,customer_phone,price_cents&driver_id=eq.${id}&status=in.(requested,accepted,started)&order=id`),
+    sb(`/rest/v1/driver_amount_due?select=*&driver_id=eq.${id}`)]);
+  ST.me=r[0][0]||null; ST.myPrices=r[1]; ST.jobs=r[2]; ST.dDue=r[3][0]||{};
+}
+async function upload(bucket,file,name){
+  const path=sess.user.id+"/"+name;
+  const r=await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"x-upsert":"true","Content-Type":file.type||"image/jpeg"},body:file});
+  if(!r.ok) throw new Error("Could not upload the picture. Try a smaller one.");
+  return path;
+}
+const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?loadAdmin():user.tab==="drv"?loadDriver():Promise.all([loadCust(),cview==="drive"?loadDrivers():0]);
 
 // ---- screens ----
-function customer(){
+function food(){
   const mine=ST.mine.map(o=>{const t=tagFor(o.status);return `<div class="row"><span>Order #${o.id} · ${R(o.cash_cents)}</span><span class="tag ${t[1]}">${t[0]}</span></div>`}).join("");
   const hist=mine?`<div class="card"><h2>Your orders</h2>${mine}</div>`:"";
   if(!ST.shop){
@@ -131,6 +164,65 @@ function customer(){
     <div class="row"><b>Pay cash on delivery</b><b>${R(total)}</b></div>
     <button class="btn" data-a="order" ${total?"":"disabled"}>Place order</button>
     <button class="btn ghost" data-a="shops">Back to shops</button></div>${hist}`;
+}
+const fld=(k,l,ph="",t="text")=>`<label for="f_${k}">${l}</label><input id="f_${k}" type="${t}" style="width:100%" value="${esc(ST.form[k]||"")}" data-a="form" data-k="${k}" placeholder="${ph}">`;
+const sel=(k,l,opts)=>`<label for="f_${k}">${l}</label><select id="f_${k}" data-a="form" data-k="${k}">${opts.map(([v,t])=>`<option value="${esc(v)}" ${(ST.form[k]||opts[0][0])===v?"selected":""}>${esc(t)}</option>`).join("")}</select>`;
+const GOODS=[["furniture","Furniture"],["livestock","Livestock"],["material","Material"],["goods","Other goods"]];
+const person=d=>`<div style="display:flex;gap:12px;align-items:center">${d.photo?`<img src="${esc(d.photo)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover">`:'<div style="width:64px;height:64px;border-radius:50%;background:var(--bg)"></div>'}<div><b>${esc(d.full_name)}</b><br><small>${esc(d.vehicle_colour)} ${esc(d.vehicle_make)} · ${esc(d.plate_number)}<br>${esc(d.cellphone)}</small></div></div>`;
+function customer(){
+  const seg=`<div class="seg" role="tablist">${[["food","Order food"],["drive","Request a driver"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}</button>`).join("")}</div>`;
+  if(cview==="apply") return seg+applyScreen();
+  return seg+(cview==="drive"?driveTab():food())+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
+}
+function driveTab(){
+  if(ST.req) return reqForm();
+  const cards=ST.drivers.map(d=>`<div class="card">${person(d)}<div class="note">${(d.driver_prices||[]).map(p=>`${esc(p.place_name)}: <b>${R(p.price_cents)}</b>`).join("<br>")||"No prices yet"}</div><button class="btn" data-a="reqdriver" data-v="${d.id}">Request this driver</button></div>`).join("");
+  const trips=ST.trips.map(t=>{const g=tagFor(t.status),d=t.drivers||{};
+    const act=(t.status==="accepted"||t.status==="started")?`<button class="btn" data-a="arrived" data-id="${t.id}">I have arrived safely</button>`:"";
+    const can=(t.status==="requested"||t.status==="accepted")?(cancelling===t.id?`<select id="why"><option>Changed my mind</option><option>Driver not answering</option><option>Found another driver</option></select><button class="btn ghost" data-a="docanceltrip" data-id="${t.id}">Confirm cancel</button>`:`<button class="btn ghost" data-a="canceltrip" data-id="${t.id}">Cancel</button>`):"";
+    return `<div class="card"><div class="row"><b>${esc(t.dropoff_place)} · ${R(t.price_cents)}</b><span class="tag ${g[1]}">${g[0]}</span></div><small>${esc(t.goods_type)} · ${esc(d.full_name||"")} ${esc(d.cellphone||"")} · ${esc(d.vehicle_colour||"")} ${esc(d.vehicle_make||"")} ${esc(d.plate_number||"")}</small>${act}${can}</div>`}).join("");
+  return `<h1>Request a driver</h1><p class="sub">Move furniture, livestock, material or goods. You pay the driver in cash. Tap <b>I have arrived safely</b> when you get home.</p>${msgs()}${cards||'<div class="card"><small>No drivers are available right now.</small></div>'}${trips?`<h2>Your trips</h2>${trips}`:""}`;
+}
+function reqForm(){
+  const d=ST.drivers.find(x=>x.id===ST.req);
+  return `<h1>Request ${esc(d.full_name)}</h1>${msgs()}<div class="card">${person(d)}
+  ${sel("place","Take my goods to",(d.driver_prices||[]).map(p=>[p.place_name,p.place_name+" — "+R(p.price_cents)]))}
+  ${sel("goods","What are we moving?",GOODS)}${fld("desc","Short description","e.g. 2-seater couch and a fridge")}${fld("pickup","Pick-up address","House number and street")}
+  ${fld("when","When?","e.g. Saturday morning")}${fld("phone","Your cellphone number","So the driver can call you","tel")}
+  <button class="btn" data-a="sendreq">Send request</button><button class="btn ghost" data-a="noreq">Back</button></div>`;
+}
+function applyScreen(){
+  const m=ST.me;
+  if(m) return `<h1>Driver application</h1>${msgs()}<div class="card"><div class="banner ${m.status==="approved"?"ok":"bad"}"><strong>${m.status==="approved"?"You are approved":m.status==="suspended"?"Your account is suspended":"Waiting for approval"}</strong>${m.status==="approved"?"Log out and log in again to open your driver screen.":"We are checking your details. You will be able to see your driver screen once you are approved."}</div></div>`;
+  return `<h1>Become a driver</h1><p class="sub">Customers will see your name, face photo, vehicle details and cellphone number. Your ID number stays hidden from customers.</p>${msgs()}<div class="card">
+  ${fld("name","Full name")}${fld("phone","Cellphone number","","tel")}${fld("make","Vehicle make","e.g. Toyota Hilux")}${fld("colour","Vehicle colour")}${fld("plate","Number plate")}
+  ${sel("vtype","Vehicle type",[["bakkie","Bakkie"],["car","Car"],["truck","Truck"],["other","Other"]])}${fld("idno","ID number")}
+  <label for="f_photo">Your face photo</label><input id="f_photo" type="file" accept="image/*">
+  <label for="f_idfile">Photo of your ID</label><input id="f_idfile" type="file" accept="image/*">
+  <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px"><input id="f_consent" type="checkbox"><span>I agree that Inanda Business Web keeps my ID details to check who I am, and shows my name, photo, vehicle and cellphone number to customers.</span></label>
+  <button class="btn" data-a="apply">Send application</button></div>`;
+}
+function driver(){
+  if(ownView==="pay") return payScreen();
+  const me=ST.me; if(!me) return applyScreen();
+  const d=ST.dDue||{}, due=d.amount_due_cents||0;
+  const bn=d.overdue?'<div class="banner bad"><strong>Payment overdue</strong>Customers cannot see you until you pay your balance.</div>':(me.status!=="approved"?'<div class="banner bad"><strong>Your account is not active</strong>Contact Inanda Business Web.</div>':"");
+  const jobs=ST.jobs.map(j=>{const g=tagFor(j.status);let act="";
+    if(j.status==="requested") act=cancelling===j.id?`<select id="why"><option>Too far</option><option>Vehicle too small</option><option>Not available that day</option></select><button class="btn ghost" data-a="dodecline" data-id="${j.id}">Confirm decline</button>`:`<button class="btn" data-a="jaccept" data-id="${j.id}">Accept</button><button class="btn ghost" data-a="decline" data-id="${j.id}">Decline</button>`;
+    else if(j.status==="accepted") act=`<button class="btn" data-a="jstart" data-id="${j.id}">Start trip</button>`;
+    else act='<div class="note">Trip started. It is finished when the customer taps that they have arrived.</div>';
+    return `<div class="card"><div class="row"><b>${esc(j.dropoff_place)} · ${R(j.price_cents)}</b><span class="tag ${g[1]}">${g[0]}</span></div><p style="margin:4px 0">${esc(j.goods_type)}: ${esc(j.description||"")}</p><small>Pick up: ${esc(j.pickup_text)}<br>When: ${esc(j.when_text||"-")}<br>Customer: <a href="tel:${esc(j.customer_phone||"")}">${esc(j.customer_phone||"")}</a></small>${act}</div>`}).join("");
+  const places=[...ST.areas.map(a=>[a.name,a.name]),["__other","Another place…"]];
+  const prices=ST.myPrices.map(p=>`<div class="row"><span>${esc(p.place_name)}</span><span><b>${R(p.price_cents)}</b> <button class="sm" data-a="delprice" data-id="${p.id}">Remove</button></span></div>`).join("");
+  return `<h1>${esc(me.full_name)}</h1><p class="sub">Trips are paid weekly.</p>${bn}${msgs()}
+  <div class="card"><h2>Balance to pay</h2><div class="row"><span>Trips finished</span><b>${d.jobs_completed||0}</b></div>
+    <div class="row"><span>Amount due</span><b class="big">${R(due)}</b></div>
+    <div class="note">Pay your balance within 7 days of each trip. If a trip stays unpaid for more than 7 days, customers stop seeing you until you pay.</div>
+    <button class="btn" data-a="pay" ${due?"":"disabled"}>Pay amount due</button></div>
+  <h2>Your jobs</h2>${jobs||'<div class="card"><small>No open jobs. New requests show up here when you tap Refresh.</small></div>'}
+  <h2>Your prices</h2><div class="card">${prices||"<small>Add a price for each place you travel to.</small>"}
+    ${sel("pplace","Place",places)}${(ST.form.pplace==="__other")?fld("pother","Place name"):""}${fld("pprice","Price in rand","e.g. 250","number")}
+    <button class="btn" data-a="addprice">Save price</button></div>`;
 }
 function owner(){
   if(ownView==="pay") return payScreen();
@@ -169,29 +261,39 @@ function stmtScreen(){
     <div class="note">Fee is 25% of the app price. The delivery credit is 5% of the app price. You owe the fee minus the credit.</div>
     <button class="btn ghost" data-a="back">Back</button></div>`;
 }
+function payRef(){
+  const sa=new Date(new Date().toLocaleString("en-US",{timeZone:"Africa/Johannesburg"})), mon=sa.toLocaleString("en",{month:"short"}).toUpperCase(), yy=String(sa.getFullYear()).slice(2);
+  return user.tab==="drv"?"DRIVER-"+sess.user.id.slice(0,6).toUpperCase()+"-"+String(sa.getDate()).padStart(2,"0")+mon+yy:"SHOP"+String(ST.shop.id).padStart(3,"0")+"-"+mon+yy;
+}
 function payScreen(){
   if(!BANK) return '<h1>Pay by EFT</h1><p class="sub">Loading bank details…</p><button class="btn ghost" data-a="back">Back</button>';
-  const d=new Date(), ref="SHOP"+String(ST.shop.id).padStart(3,"0")+"-"+d.toLocaleString("en",{month:"short"}).toUpperCase()+String(d.getFullYear()).slice(2);
+  const amt=user.tab==="drv"?(ST.dDue||{}).amount_due_cents:(ST.due||{}).amount_due_cents;
   return `<h1>Pay by EFT</h1><p class="sub">Transfer the exact amount, using this reference.</p>
   <div class="card">
-    <div class="row"><span>Amount</span><b>${R((ST.due||{}).amount_due_cents||0)}</b></div>
+    <div class="row"><span>Amount</span><b>${R(amt||0)}</b></div>
     <div class="row"><span>Account name</span><b>${esc(BANK.name)}</b></div>
     <div class="row"><span>Bank</span><b>${esc(BANK.bank)}</b></div>
     <div class="row"><span>Account number</span><b>${esc(BANK.acct)}</b></div>
     ${BANK.branch?`<div class="row"><span>Branch code</span><b>${esc(BANK.branch)}</b></div>`:""}
-    <div class="row"><span>Reference</span><b class="ref">${ref}</b></div>
-    <div class="note">Use this reference so we can match your payment to your shop. Keep your proof of payment. Inanda Business Web will confirm it and reopen your shop if it was paused.</div>
+    <div class="row"><span>Reference</span><b class="ref">${payRef()}</b></div>
+    <div class="note">Use this reference so we can match your payment. Tap the button below after you have paid.</div>
+    <button class="btn" data-a="paid">I have made the payment</button>
     <button class="btn ghost" data-a="back">Back</button></div>`;
 }
+const idn=d=>{const p=d.driver_private; return ((Array.isArray(p)?p[0]:p)||{}).id_number||"";};
 function admin(){
+  const pend=ST.pend.map(d=>`<div class="card"><b>${esc(d.full_name)}</b><br><small>${esc(d.cellphone)} · ${esc(d.vehicle_colour)} ${esc(d.vehicle_make)} · ${esc(d.plate_number)}<br>ID number: ${esc(idn(d))}<br>Check the ID photo in Supabase > Storage > driver-ids before approving.</small><button class="btn" data-a="approve" data-v="${d.id}">Approve driver</button></div>`).join("");
+  const pays=ST.pays.map(p=>`<div class="card"><div class="row"><b>${esc(p.reference)}</b><b>${R(p.amount_cents)}</b></div><small>${p.payer_type==="shop"?"Shop owner":"Driver"} says they have paid. Check your bank account first.</small><button class="btn" data-a="payconfirm" data-id="${p.id}">Money received</button><button class="btn ghost" data-a="payreject" data-id="${p.id}">Not received</button></div>`).join("");
+  const trips=ST.xtrips.map(t=>`<div class="card"><div class="row"><b>Trip #${t.id} to ${esc(t.dropoff_place)}</b><b>${R(t.price_cents)}</b></div><small>Started, but the customer has not tapped arrived. Check the customer is safe.</small><button class="btn ghost" data-a="tripdone" data-id="${t.id}">Mark arrived</button></div>`).join("");
   const rows=ST.all.map(s=>{const o=s.status==="open";return `<div class="card"><div class="row"><b>${esc(s.name)}</b><span class="tag ${o?"ok":"bad"}">${o?"Open":"Paused"}</span></div>
     <div class="row"><span>${s.orders_delivered||0} orders delivered</span><b>${R(s.amount_due_cents||0)} due</b></div>
     <button class="btn ghost" data-a="${o?"pauseshop":"openshop"}" data-id="${s.id}">${o?"Pause shop":"Reopen shop"}</button></div>`}).join("");
   const bank=[["name","Account name"],["bank","Bank"],["acct","Account number"],["branch","Branch code"]].map(([k,l])=>`<div class="row"><span>${l}</span><input type="text" style="width:60%" value="${BANK?esc(BANK[k]):""}" data-a="bank" data-k="${k}" aria-label="${l}"></div>`).join("");
-  return `<h1>Admin</h1><p class="sub">All shops and what they owe you.</p>${msgs()}${rows||'<div class="card"><small>No shops yet.</small></div>'}
-  <div class="card"><h2>Your bank details</h2><small>Only logged-in owners and you can see these.</small>${bank}</div>`;
+  return `<h1>Admin</h1><p class="sub">Drivers, payments and shops.</p>${msgs()}
+  ${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
+  <h2>Shops</h2>${rows||'<div class="card"><small>No shops yet.</small></div>'}
+  <div class="card"><h2>Your bank details</h2><small>Only logged-in owners, drivers and you can see these.</small>${bank}</div>`;
 }
-
 const LOGO = `<svg viewBox="0 0 260 226" role="img" aria-label="Inanda Business Web logo: a woman paying a man">
 <circle cx="130" cy="102" r="94" fill="#f2b705"/><circle cx="130" cy="102" r="94" fill="none" stroke="#12352b" stroke-width="5"/>
 <path d="M60 168h140" stroke="#12352b" stroke-width="4" stroke-linecap="round"/>
@@ -220,8 +322,8 @@ async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
   const p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id);
   const role=(p&&p[0]&&p[0].role)||"customer";
-  user={tab:{customer:"cust",owner:"own",admin:"adm"}[role]}; tab=user.tab; ownView="due"; loc=null; authMsg="";
-  try{ await loadAreas(); if(role==="owner") await loadOwner(); else if(role==="admin") await loadAdmin(); else await loadCust(); }catch(e){ ST.err=e.message; }
+  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="food"; tab=user.tab; ownView="due"; loc=null; authMsg="";
+  try{ await loadAreas(); if(role==="owner") await loadOwner(); else if(role==="admin") await loadAdmin(); else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); } }catch(e){ ST.err=e.message; }
   if(role!=="customer") loadBank();
 }
 async function loadBank(){
@@ -310,7 +412,7 @@ function areaScreen(){
 function render(){
   const cust=user&&user.tab==="cust";
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
-  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):(cust&&!loc)?areaScreen():tab==="cust"?customer():tab==="own"?owner():admin();
+  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():loginScreen()):(cust&&!loc)?areaScreen():tab==="cust"?customer():tab==="own"?owner():tab==="drv"?driver():admin();
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
@@ -332,6 +434,37 @@ const H={
   cancel:(el,id)=>{cancelling=id;},
   docancel:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"cancelled",p_reason:document.getElementById("why").value});cancelling=null;await loadOwner();}),
   pay:()=>{ownView="pay";}, stmt:()=>{ownView="stmt";}, back:()=>{ownView="due";},
+  paid:()=>go(async()=>{await rpc("submit_payment",{});ownView="due";await reload();ST.note="Payment submitted. We will confirm it when we see it in our account.";}),
+  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=null;if(cview==="drive")await loadDrivers();if(cview==="apply")await loadMe();}),
+  reqdriver:el=>{ST.req=el.dataset.v;ST.form.place="";},
+  noreq:()=>{ST.req=null;},
+  sendreq:()=>go(async()=>{const d=ST.drivers.find(x=>x.id===ST.req),f=ST.form;
+    await rpc("request_transport",{p_driver:ST.req,p_place:f.place||d.driver_prices[0].place_name,p_goods:f.goods||"furniture",p_description:f.desc||"",p_pickup:f.pickup||"",p_when:f.when||"",p_phone:f.phone||""});
+    ST.req=null; await loadTrips(); ST.note="Request sent. The driver will accept or decline."; }),
+  arrived:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"completed"});await loadTrips();ST.note="Thank you. We are glad you arrived safely.";}),
+  canceltrip:(el,id)=>{cancelling=id;},
+  docanceltrip:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"cancelled",p_reason:document.getElementById("why").value});cancelling=null;await loadTrips();}),
+  apply:()=>go(async()=>{const f=ST.form;
+    if(!document.getElementById("f_consent").checked) throw new Error("Please tick the box to agree.");
+    const ph=document.getElementById("f_photo").files[0], idf=document.getElementById("f_idfile").files[0];
+    if(!ph||!idf) throw new Error("Please add your face photo and a photo of your ID.");
+    const pp=await upload("driver-photos",ph,"photo"), ip=await upload("driver-ids",idf,"id");
+    await rpc("apply_as_driver",{p_name:f.name||"",p_phone:f.phone||"",p_make:f.make||"",p_colour:f.colour||"",p_plate:f.plate||"",p_type:f.vtype||"bakkie",p_id_number:f.idno||"",p_photo_path:pp,p_id_doc_path:ip});
+    await loadMe(); ST.note="Application sent. We will check your details and approve you."; }),
+  jaccept:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"accepted"});await loadDriver();}),
+  jstart:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"started"});await loadDriver();}),
+  decline:(el,id)=>{cancelling=id;},
+  dodecline:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"declined",p_reason:document.getElementById("why").value});cancelling=null;await loadDriver();}),
+  addprice:()=>go(async()=>{const f=ST.form; let place=f.pplace||(ST.areas[0]&&ST.areas[0].name); if(place==="__other") place=(f.pother||"").trim();
+    const cents=Math.round(parseFloat(f.pprice)*100); if(!place||!(cents>0)) throw new Error("Choose a place and type a price.");
+    const a=ST.areas.find(x=>x.name===place);
+    await sb("/rest/v1/driver_prices?on_conflict=driver_id,place_name",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({driver_id:sess.user.id,place_name:place,area_id:a?a.id:null,price_cents:cents})});
+    f.pprice=""; f.pother=""; await loadDriver(); ST.note="Price saved."; }),
+  delprice:(el,id)=>go(async()=>{await sb("/rest/v1/driver_prices?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadDriver();}),
+  approve:el=>go(async()=>{await rpc("approve_driver",{p_driver:el.dataset.v});await loadAdmin();}),
+  payconfirm:(el,id)=>go(async()=>{await rpc("confirm_payment",{p_payment:id});await loadAdmin();}),
+  payreject:(el,id)=>go(async()=>{await rpc("reject_payment",{p_payment:id});await loadAdmin();}),
+  tripdone:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"completed"});await loadAdmin();}),
   pauseshop:(el,id)=>go(async()=>{await patchShop(id,{status:"paused",pause_reason:"unpaid"});await loadAdmin();}),
   openshop:(el,id)=>go(async()=>{await patchShop(id,{status:"open",pause_reason:null});await loadAdmin();})
 };
@@ -344,6 +477,7 @@ document.body.addEventListener("change",e=>{
   const t=e.target, a=t.dataset.a;
   if(a==="bank"){ if(BANK){BANK[t.dataset.k]=t.value; saveBank(t.dataset.k,t.value);} }
   else if(a==="addr"){ ST.address=t.value; }
+  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(t.dataset.k==="pplace") render(); }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
 document.getElementById("logo").innerHTML=LOGO; render(); restore();
