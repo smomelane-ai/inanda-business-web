@@ -138,6 +138,7 @@ main{padding-bottom:84px}
 const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tab="cust", ownView="due", cancelling=null, user=null, loc=null, locId=null;
+const dispName=()=>{ const p=ST.profile||{}, n=((p.name||"")+" "+(p.surname||"")).trim(); if(n) return n; if(ST.shop&&ST.shop.name) return ST.shop.name; if(ST.me&&ST.me.full_name) return ST.me.full_name; return ROLES[user.tab]||""; };
 const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver",pend:"Your account"};
 let cview="home", xtab="main";
 const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},chats:[],thread:null,msgs:[],threadWith:null,unread:0,profile:{},req:false,news:[],vids:[],feedErr:"",reporting:false,members:[],reports:[],atab:"over",mfilter:"pending",openm:{},custAppr:false,membersErr:"",shopApp:null});
@@ -326,10 +327,10 @@ const roleLabel=r=>({customer:"Customer",owner:"Shop",driver:"Driver",admin:"Sup
 const mbadge=()=>`<span class="mbadge">${ST.unread?" ("+ST.unread+")":""}</span>`;
 function updateBadges(){ document.querySelectorAll(".mbadge").forEach(b=>{ b.textContent=ST.unread?" ("+ST.unread+")":""; }); document.title=(ST.unread?"("+ST.unread+") ":"")+"Inanda Business Web"; }
 const logHtml=()=>ST.msgs.length?ST.msgs.map(m=>`<div class="bub ${m.sender_id===sess.user.id?"me":"them"}">${esc(m.body).replace(/\n/g,"<br>")}<span class="bt">${new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span></div>`).join(""):"<small>No messages yet. Say hello.</small>";
-const chatRows=()=>ST.chats.map(c=>`<button class="chatrow" data-a="openchat" data-id="${c.chat_id}"><div><b>${esc(c.with_name)}</b> <span class="tag">${esc(roleLabel(c.with_role))}</span><br><small>${esc((c.last_body||"").slice(0,70))}</small></div><div class="chatmeta">${ago(c.last_at)}${c.unread?`<span class="dot">${c.unread}</span>`:""}</div></button>`).join("")||'<div class="card"><small>No messages yet. To start one, tap Message on a shop, a driver, an order or a trip.</small></div>';
+const chatRows=()=>ST.chats.map(c=>`<button class="chatrow" data-a="openchat" data-id="${c.chat_id}"><div><b>${esc(c.with_name)}</b><br><small>${esc((c.last_body||"").slice(0,70))}</small></div><div class="chatmeta">${ago(c.last_at)}${c.unread?`<span class="dot">${c.unread}</span>`:""}</div></button>`).join("")||'<div class="card"><small>No messages yet. To start one, tap Message on a shop, a driver, an order or a trip.</small></div>';
 function messagesScreen(){
   if(ST.thread){ const w=ST.threadWith||{};
-    return `<button class="sm" data-a="closechat">← Back</button>${user.tab!=="adm"?'<button class="sm" style="float:right" data-a="reportopen">Report</button>':""}<h1 style="margin-top:8px">${esc(w.with_name||"Chat")}</h1><p class="sub">${esc(roleLabel(w.with_role))}</p>${msgs()}${reportForm()}
+    return `<button class="sm" data-a="closechat">← Back</button>${user.tab!=="adm"?'<button class="sm" style="float:right" data-a="reportopen">Report</button>':""}<h1 style="margin-top:8px">${esc(w.with_name||"Chat")}</h1>${msgs()}${reportForm()}
     <div class="card"><div id="chatlog" class="chatlog">${logHtml()}</div><div class="chatbar"><input id="chatin" type="text" maxlength="1000" placeholder="Type a message" autocomplete="off" aria-label="Message"><button class="btn" style="width:auto;margin:0;padding:12px 18px" data-a="send">Send</button></div></div>`; }
   return `<h1>Messages</h1><p class="sub">Chat with shops, drivers and support about an order or a trip.</p>${msgs()}<div id="chatlist">${chatRows()}</div>${user.tab!=="adm"?'<button class="btn ghost" data-a="support">Contact support</button>':""}<div class="note">Be polite. Never send money or passwords in a chat. Customers cannot message other customers. If you report a chat, the last 30 messages are sent to the admin.</div>`;
 }
@@ -505,7 +506,7 @@ function pendingScreen(){
   let det="";
   if(req==="driver"&&ST.me) det=`<div class="note">${person({...ST.me,photo:""})}</div>`;
   if(req==="owner"&&ST.shopApp) det=`<div class="note">Shop: <b>${esc(ST.shopApp.shop_name)}</b>${ST.shopApp.shop_address?"<br>"+esc(ST.shopApp.shop_address):""}</div>`;
-  return `<h1>Almost there</h1><p class="sub">Welcome to Inanda Business Web.</p>${msgs()}<div class="card"><div class="banner bad"><strong>Waiting for approval</strong>Your ${who} account is being checked by the admin. You can use the app once you are approved. Tap Refresh to check.</div>${det}<button class="btn" data-a="refresh">Refresh</button></div>`;
+  return `<h1>Almost there</h1><p class="sub">Welcome, ${esc((ST.profile&&ST.profile.name)||"")}.</p>${msgs()}<div class="card"><div class="banner bad"><strong>Waiting for approval</strong>Your account is being checked by the admin. You can use the app once you are approved. Tap Refresh to check.</div>${det}<button class="btn" data-a="refresh">Refresh</button></div>`;
 }
 const REASONS=[["abuse","Abuse or insults"],["scam","Scam or asking for money"],["spam","Spam"],["unsafe","I feel unsafe"],["other","Something else"]];
 function reportForm(){
@@ -647,7 +648,7 @@ async function sb(path,opt={}){
 }
 async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
-  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name,status,requested_role&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
+  let p; try{ p=await sb("/rest/v1/profiles?select=role,name,surname,phone,area_name,status,requested_role&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
   const role=(p&&p[0]&&p[0].role)||"customer";
   const status=(p&&p[0]&&p[0].status)||"approved"; prevUnread=null; seenOrders=null; seenReqs=null; user={tab:(status!=="approved"&&role!=="admin")?"pend":{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; xtab="main"; loc=null; locId=null; authMsg=""; ST.profile=(p&&p[0])||{}; if(ST.profile.phone) ST.form.phone=ST.form.phone||ST.profile.phone;
   try{ await loadAreas(); const ar=ST.areas.find(x=>x.name===ST.profile.area_name); if(role==="customer"&&ar){ loc=ar.name; locId=ar.id; } if(user.tab==="pend") await loadPending(); else if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } try{ if(user.tab!=="pend") await loadChats(); }catch(e){} }catch(e){ ST.err=e.message; }
@@ -788,7 +789,7 @@ function areaScreen(){
 }
 function render(){
   const cust=user&&user.tab==="cust";
-  document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="sndtoggle" aria-label="Message sound on or off">${soundOn?"🔔":"🔕"}</button> <button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
+  document.getElementById("bar").innerHTML = user?`<span><b style="display:inline-block;max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">${esc(dispName())}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="sndtoggle" aria-label="Message sound on or off">${soundOn?"🔔":"🔕"}</button> <button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
   document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="pend"?pendingScreen():tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
   if(!user) tsMount(); wishVis();
 }
