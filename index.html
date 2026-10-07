@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Inanda Business Web</title>
-<meta name="theme-color" content="#12352b">
+<meta name="theme-color" content="#f3f3f1">
 <meta name="description" content="Inanda Business Web - Kubamba ezingelayo">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -15,9 +15,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap">
 <style>
-:root{--bg:#eef2ee;--surface:#fff;--ink:#12352b;--muted:#5b6f66;--line:#d3ddd6;--accent:#f2b705;--on-accent:#12352b;--bad:#b3261e;--bad-bg:#fbe9e7;--ok:#1b7a4b;--ok-bg:#e3f4ea;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1a15;--surface:#16261f;--ink:#eaf2ed;--muted:#9bb0a5;--line:#2a3f35;--bad:#ff8a80;--bad-bg:#3a1f1c;--ok:#6fdc9d;--ok-bg:#173a28}}
-:root[data-theme="dark"]{--bg:#0e1a15;--surface:#16261f;--ink:#eaf2ed;--muted:#9bb0a5;--line:#2a3f35;--bad:#ff8a80;--bad-bg:#3a1f1c;--ok:#6fdc9d;--ok-bg:#173a28}
+:root{--bg:#f3f3f1;--surface:#fff;--ink:#111;--muted:#555;--line:#d4d4d0;--accent:#111;--on-accent:#fff;--bad:#b3261e;--bad-bg:#fdeceb;--ok:#14683d;--ok-bg:#e6f4ec;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45}
@@ -69,12 +67,12 @@ input[type=password],input[type=email],input[type=tel]{width:100%;font:inherit;f
 .sec-h h2{margin:0}.muted{font-size:12px;color:var(--muted)}
 .vbar{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 14px;margin:0 -2px 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .vbar::-webkit-scrollbar{display:none}
-.vcard{position:relative;flex:0 0 150px;aspect-ratio:9/16;border-radius:18px;overflow:hidden;scroll-snap-align:start;background:linear-gradient(160deg,#12352b,#1b7a4b);cursor:pointer;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.22);transition:transform .2s}
+.vcard{position:relative;flex:0 0 150px;aspect-ratio:9/16;border-radius:18px;overflow:hidden;scroll-snap-align:start;background:linear-gradient(160deg,#111,#3a3a3a);cursor:pointer;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.22);transition:transform .2s}
 .vcard:hover{transform:translateY(-2px)}
 .vcard:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .vposter{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .vcard::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0) 55%);pointer-events:none}
-.vplay{position:absolute;top:50%;left:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(255,255,255,.9);color:#12352b;display:grid;place-items:center;z-index:2;transition:transform .2s}
+.vplay{position:absolute;top:50%;left:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(255,255,255,.92);color:#111;display:grid;place-items:center;z-index:2;transition:transform .2s}
 .vcard:hover .vplay{transform:scale(1.1)}
 .vtitle{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;font-weight:600;font-size:13px;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.6)}
 .vcard video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:3;background:#000}
@@ -109,6 +107,10 @@ input[type=password],input[type=email],input[type=tel]{width:100%;font:inherit;f
 details.privnote{background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px}
 details.privnote summary{cursor:pointer;font-weight:600}
 .chk{display:flex;gap:8px;align-items:flex-start;margin-top:14px;color:var(--ink);font-size:14px}
+.cats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:4px 0 20px}
+.cat{font:inherit;font-weight:800;font-size:19px;min-height:112px;padding:16px 8px;border-radius:16px;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.cat .ci{font-size:36px;line-height:1}
+.cat:active{transform:scale(.98)}
 </style>
 </head>
 <body>
@@ -135,7 +137,11 @@ const msgs=()=>(ST.err?`<div class="banner bad">${esc(ST.err)}</div>`:"")+(ST.no
 // ---- loading real data from the database ----
 async function loadAreas(){ ST.areas=await sb("/rest/v1/areas?select=id,name&order=id"); }
 async function loadCust(){
-  ST.shops=locId?await sb(`/rest/v1/shops?select=id,name,owner_id&area_id=eq.${locId}&order=id`):[];
+  ST.shops=[];
+  if(locId){
+    try{ ST.shops=await sb(`/rest/v1/shops?select=id,name,owner_id,category&area_id=eq.${locId}&order=id`); }
+    catch(e){ ST.shops=(await sb(`/rest/v1/shops?select=id,name,owner_id&area_id=eq.${locId}&order=id`)).map(x=>({...x,category:"food"})); }
+  }
   ST.mine=await sb(`/rest/v1/orders?select=id,status,cash_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=8`);
   await loadTrips();
 }
@@ -254,8 +260,9 @@ function food(){
   const mine=ST.mine.map(o=>{const t=tagFor(o.status);return `<div class="row"><span>Order #${o.id} · ${R(o.cash_cents)}</span><span class="tag ${t[1]}">${t[0]}</span></div>`}).join("");
   const hist=mine?`<div class="card"><h2>Your orders</h2>${mine}</div>`:"";
   if(!ST.shop){
-    const list=ST.shops.map(s=>`<div class="row"><b>${esc(s.name)}</b><span><button class="sm" data-a="chatwith" data-v="${s.owner_id}">Message</button> <button class="sm" data-a="shop" data-id="${s.id}">Order</button></span></div>`).join("");
-    return `<h1>Shops in ${esc(loc)}</h1><p class="sub">You pay cash when your order arrives.</p>${msgs()}<div class="card">${list||"<small>No shops are open in this area right now.</small>"}</div>${hist}`;
+    const cat=CATS[cview]||CATS.food;
+    const list=ST.shops.filter(s=>(s.category||"food")===cat.k).map(s=>`<div class="row"><b>${esc(s.name)}</b><span><button class="sm" data-a="chatwith" data-v="${s.owner_id}">Message</button> <button class="sm" data-a="shop" data-id="${s.id}">Order</button></span></div>`).join("");
+    return `<h1>${esc(cat.l)} in ${esc(loc)}</h1><p class="sub">You pay cash when your order arrives.</p>${msgs()}<div class="card">${list||"<small>No "+esc(cat.l.toLowerCase())+" businesses are open in this area yet.</small>"}</div>${hist}`;
   }
   const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*i.app_price_cents,0);
   const items=ST.menu.map(i=>{const q=ST.cart[i.id]||0;return `<div class="row"><div><b>${esc(i.name)}</b><br><small>${R(i.app_price_cents)}</small></div><div class="qty"><button data-a="dec" data-id="${i.id}" aria-label="Remove one ${esc(i.name)}">−</button><span>${q}</span><button data-a="inc" data-id="${i.id}" aria-label="Add one ${esc(i.name)}">+</button></div></div>`}).join("");
@@ -305,11 +312,16 @@ function msgTabs(){
   const main={own:"My shop",drv:"My jobs",adm:"Admin"}[user.tab];
   return `<div class="seg" role="tablist">${[["main",main],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${xtab===k}" data-a="xtab" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
 }
+const CATS={food:{k:"food",l:"Food"},build:{k:"construction",l:"Construction"},beauty:{k:"beauty",l:"Beauty"}};
+function homeTiles(){
+  const t=(v,l,i)=>`<button class="cat" data-a="cview" data-v="${v}"><span class="ci" aria-hidden="true">${i}</span>${l}</button>`;
+  return `<h1>What do you need?</h1><p class="sub">Tap one to start.</p><div class="cats">${t("food","Food","🍔")}${t("drive","Transport","🚚")}${t("build","Construction","🧱")}${t("beauty","Beauty","💇")}</div>`;
+}
 function customer(){
-  const seg=`<div class="seg" role="tablist">${[["home","Home"],["food","Order food"],["drive","Request a driver"],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
+  const seg=`<div class="seg" role="tablist">${[["home","Home"],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
   if(cview==="msgs") return seg+messagesScreen();
-  return seg+(cview==="home"?feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
+  return seg+(cview==="home"?homeTiles()+feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
   if(ST.req) return reqForm();
@@ -637,7 +649,7 @@ const H={
   docancel:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"cancelled",p_reason:document.getElementById("why").value});cancelling=null;await loadOwner();}),
   pay:()=>{ownView="pay";}, stmt:()=>{ownView="stmt";}, back:()=>{ownView="due";},
   paid:()=>go(async()=>{await rpc("submit_payment",{});ownView="due";await reload();ST.note="Payment submitted. We will confirm it when we see it in our account.";}),
-  cview:el=>go(async()=>{cview=el.dataset.v;ST.req=false;ST.thread=null;ST.msgs=[];if(cview==="msgs")await loadChats();if(cview==="drive")await loadTrips();if(cview==="home")await loadFeed();if(cview==="apply")await loadMe();}),
+  cview:el=>go(async()=>{cview=el.dataset.v;ST.shop=null;ST.req=false;ST.thread=null;ST.msgs=[];if(cview==="msgs")await loadChats();if(cview==="drive")await loadTrips();if(cview==="home")await loadFeed();if(cview==="apply")await loadMe();}),
   newreq:()=>{ST.req=true;}, noreq:()=>{ST.req=false;},
   sendreq:()=>go(async()=>{const f=ST.form, b=Math.round(parseFloat(f.budget)*100);
     await rpc("request_transport",{p_from:pl("rfrom"),p_to:pl("rto"),p_goods:f.goods||"furniture",p_description:f.desc||"",p_pickup:f.pickup||"",p_when:f.when||"",p_phone:f.phone||"",p_budget_cents:b>0?b:null});
