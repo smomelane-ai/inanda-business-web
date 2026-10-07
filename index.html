@@ -118,6 +118,10 @@ details.mem[open] summary{margin-bottom:8px}
 .mem-info{font-size:14px;line-height:1.6}
 .rep-log{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--bg);border-radius:10px;margin:8px 0}
 textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+main{padding-bottom:84px}
+.wishbtn{position:fixed;left:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;font:inherit;font-weight:700;font-size:14px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}
+#wishpanel{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+#wishpanel[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -128,6 +132,8 @@ textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
   <div id="app"></div>
   <div id="logo" style="text-align:center;margin:20px auto 8px;max-width:220px"></div>
 </main>
+<button id="wishbtn" class="wishbtn" type="button">📝 Wish list</button>
+<div id="wishpanel" hidden></div>
 <script>
 const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -784,7 +790,7 @@ function render(){
   const cust=user&&user.tab==="cust";
   document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="sndtoggle" aria-label="Message sound on or off">${soundOn?"🔔":"🔕"}</button> <button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
   document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="pend"?pendingScreen():tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
-  if(!user) tsMount();
+  if(!user) tsMount(); wishVis();
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
@@ -944,6 +950,58 @@ async function pollChat(){
 }
 setInterval(()=>{ tick++; if((ST.thread&&inMsgs())||tick%3===0) pollChat(); if(tick%6===0) pollWork(); },5000);
 document.getElementById("logo").innerHTML=LOGO; render(); restore();
+
+// ---- wish list (kept on this phone only, works with no internet) ----
+const WK="inanda_wish", BK="inanda_budget";
+let WISH=[], WBUD="";
+try{ WISH=JSON.parse(localStorage.getItem(WK)||"[]"); if(!Array.isArray(WISH)) WISH=[]; WBUD=localStorage.getItem(BK)||""; }catch(e){ WISH=[]; WBUD=""; }
+const wsave=()=>{ try{ localStorage.setItem(WK,JSON.stringify(WISH)); localStorage.setItem(BK,WBUD); }catch(e){} };
+function wishVis(){ const b=document.getElementById("wishbtn"); if(b) b.style.display=(!user||user.tab==="cust")?"":"none"; }
+function wishHtml(){
+  const total=WISH.filter(w=>!w.done).reduce((a,w)=>a+(w.p||0),0), bud=Math.round(parseFloat(WBUD)*100)||0, left=bud-total;
+  const rows=WISH.map(w=>`<div class="row"><label style="display:flex;gap:8px;align-items:center;margin:0;font-size:15px;color:var(--ink);flex:1"><input type="checkbox" data-w="done" data-id="${esc(w.id)}" ${w.done?"checked":""}><span style="${w.done?"text-decoration:line-through;opacity:.6":""}">${esc(w.t)}</span></label><span>${w.p?R(w.p)+" ":""}<button class="sm" data-w="del" data-id="${esc(w.id)}" aria-label="Remove ${esc(w.t)}">Remove</button></span></div>`).join("");
+  const sum=WISH.length?`<div class="note"><div class="row" style="padding:2px 0"><span>Still to buy</span><b>${R(total)}</b></div>${bud?`<div class="row" style="padding:2px 0"><span>My budget</span><b>${R(bud)}</b></div><div class="row" style="padding:2px 0"><span>${left>=0?"Left over":"Over budget by"}</span><b style="color:var(${left>=0?"--ok":"--bad"})">${R(Math.abs(left))}</b></div>`:""}</div>`:"";
+  return `<div role="dialog" aria-modal="true" aria-label="My wish list" style="width:100%;max-width:520px;max-height:92vh;overflow-y:auto;background:var(--surface);color:var(--ink);border-radius:18px;padding:16px">
+    <div class="row" style="padding-top:0"><h2 style="margin:0">My wish list</h2><button class="sm" data-w="close">Close</button></div>
+    <p class="sub" style="margin:4px 0 10px">Saved on this phone only. It works without internet. Shops and the admin cannot see it, but anyone who uses this phone can.</p>
+    <label for="w_bud">My budget in rand (optional)</label><input id="w_bud" type="number" min="0" step="1" inputmode="decimal" style="width:100%" value="${esc(WBUD)}" placeholder="e.g. 500">
+    <label for="w_name">Something I wish to buy</label><input id="w_name" type="text" maxlength="80" style="width:100%" placeholder="e.g. School shoes">
+    <label for="w_price">Price in rand (optional)</label><input id="w_price" type="number" min="0" step="0.5" inputmode="decimal" style="width:100%" placeholder="e.g. 250">
+    <button class="btn" data-w="add">Add to my list</button>
+    ${rows?`<h2 style="margin-top:16px">My list</h2><small>Tick an item when you have bought it.</small>${rows}`:'<div class="note">Nothing on your list yet.</div>'}
+    ${sum}${WISH.some(w=>w.done)?'<button class="btn ghost" data-w="clear">Remove ticked items</button>':""}</div>`;
+}
+function wishOpen(focusName){
+  const p=document.getElementById("wishpanel"); if(!p) return;
+  p.hidden=false; p.innerHTML=wishHtml();
+  if(focusName){ const n=document.getElementById("w_name"); if(n) n.focus(); }
+}
+function wishClose(){ const p=document.getElementById("wishpanel"); if(p){ p.hidden=true; p.innerHTML=""; } const b=document.getElementById("wishbtn"); if(b) b.focus(); }
+function wishAdd(){
+  const n=document.getElementById("w_name"), pr=document.getElementById("w_price"); if(!n) return;
+  const t=n.value.trim().slice(0,80); if(!t){ n.focus(); return; }
+  if(WISH.length>=100) return;
+  const c=Math.round(parseFloat(pr.value)*100);
+  WISH.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),t,p:c>0?c:null,done:false});
+  wsave(); wishOpen(true);
+}
+(function(){
+  const p=document.getElementById("wishpanel"), b=document.getElementById("wishbtn"); if(!p||!b) return;
+  b.addEventListener("click",()=>wishOpen(false));
+  p.addEventListener("click",e=>{
+    if(e.target===p){ wishClose(); return; }
+    const el=e.target.closest("[data-w]"); if(!el) return; const a=el.dataset.w;
+    if(a==="close") wishClose(); else if(a==="add") wishAdd();
+    else if(a==="del"){ WISH=WISH.filter(w=>w.id!==el.dataset.id); wsave(); wishOpen(false); }
+    else if(a==="clear"){ WISH=WISH.filter(w=>!w.done); wsave(); wishOpen(false); }
+  });
+  p.addEventListener("change",e=>{
+    const t=e.target;
+    if(t.id==="w_bud"){ WBUD=t.value.trim(); wsave(); wishOpen(false); }
+    else if(t.dataset&&t.dataset.w==="done"){ const w=WISH.find(x=>x.id===t.dataset.id); if(w){ w.done=t.checked; wsave(); wishOpen(false); } }
+  });
+  p.addEventListener("keydown",e=>{ if(e.key==="Escape"){ wishClose(); } else if(e.key==="Enter"&&(e.target.id==="w_name"||e.target.id==="w_price")){ e.preventDefault(); wishAdd(); } });
+})();
 
 // ---- PWA: install button and service worker ----
 let deferred = null;
