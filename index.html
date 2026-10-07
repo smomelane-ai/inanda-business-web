@@ -166,6 +166,15 @@ async function loadAdmin(){
     sb("/rest/v1/payments?select=id,payer_type,reference,amount_cents&status=eq.pending&order=id"),
     sb("/rest/v1/transport_requests?select=id,from_place,to_place,price_cents,started_at&status=eq.started&order=id")]);
   ST.all=r[0].map(s=>({...s,...(r[1].find(d=>d.shop_id===s.id)||{})})); ST.pend=r[2]; ST.pays=r[3]; ST.xtrips=r[4];
+  ST.pendOwn=[];
+  try{
+    let ap; try{ ap=await sb("/rest/v1/shop_applications?select=user_id,shop_name,shop_address,area_name,category&order=created_at"); }
+    catch(e){ ap=(await sb("/rest/v1/shop_applications?select=user_id,shop_name,shop_address,area_name&order=created_at")).map(a=>({...a,category:"food"})); }
+    if(ap.length){
+      const pr=await sb("/rest/v1/profiles?select=id,name,surname,phone&role=eq.customer&id=in.("+ap.map(a=>a.user_id).join(",")+")");
+      ST.pendOwn=pr.map(x=>({...x,app:ap.find(a=>a.user_id===x.id)}));
+    }
+  }catch(e){}
 }
 const safeUrl=u=>/^https?:\/\//i.test(u||"")?u:"";
 const ago=iso=>{const m=Math.round((Date.now()-new Date(iso))/6e4); if(m<1)return "just now"; if(m<60)return m+" min ago"; const h=Math.round(m/60); if(h<24)return h+(h===1?" hour ago":" hours ago"); const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");};
@@ -321,7 +330,8 @@ function customer(){
   const seg=`<div class="seg" role="tablist">${[["home","Home"],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
   if(cview==="msgs") return seg+messagesScreen();
-  return seg+(cview==="home"?homeTiles()+feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
+  const waiting=(ST.profile&&ST.profile.requested_role==="owner")?'<div class="banner bad"><strong>Your business is waiting for approval</strong>We are checking your details. After you are approved, log out and log in again to open your shop screen.</div>':"";
+  return seg+waiting+(cview==="home"?homeTiles()+feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
   if(ST.req) return reqForm();
@@ -433,7 +443,9 @@ function payScreen(){
     <button class="btn ghost" data-a="back">Back</button></div>`;
 }
 const idn=d=>{const p=d.driver_private; return ((Array.isArray(p)?p[0]:p)||{}).id_number||"";};
+const catLabel=c=>({food:"Food",construction:"Construction",beauty:"Beauty"}[c]||"Food");
 function admin(){
+  const owners=(ST.pendOwn||[]).map(o=>`<div class="card"><div class="row"><b>${esc(o.app.shop_name)}</b><span class="tag">${esc(catLabel(o.app.category))}</span></div><small>${esc(o.name)} ${esc(o.surname||"")} · ${esc(o.phone||"")}<br>${esc(o.app.shop_address||"")}${o.app.area_name?" · "+esc(o.app.area_name):""}</small><button class="btn" data-a="approveown" data-v="${o.id}">Approve business</button></div>`).join("");
   const pend=ST.pend.map(d=>`<div class="card"><b>${esc(d.full_name)}</b><br><small>${esc(d.cellphone)} · ${esc(d.vehicle_colour)} ${esc(d.vehicle_make)} · ${esc(d.plate_number)}<br>ID number: ${esc(idn(d))}<br>Check the ID photo in Supabase > Storage > driver-ids before approving.</small><button class="btn" data-a="approve" data-v="${d.id}">Approve driver</button></div>`).join("");
   const pays=ST.pays.map(p=>`<div class="card"><div class="row"><b>${esc(p.reference)}</b><b>${R(p.amount_cents)}</b></div><small>${p.payer_type==="shop"?"Shop owner":"Driver"} says they have paid. Check your bank account first.</small><button class="btn" data-a="payconfirm" data-id="${p.id}">Money received</button><button class="btn ghost" data-a="payreject" data-id="${p.id}">Not received</button></div>`).join("");
   const trips=ST.xtrips.map(t=>`<div class="card"><div class="row"><b>Trip #${t.id}: ${esc(t.from_place)} → ${esc(t.to_place)}</b><b>${R(t.price_cents)}</b></div><small>Started, but the customer has not tapped arrived. Check the customer is safe.</small><button class="btn ghost" data-a="tripdone" data-id="${t.id}">Mark arrived</button></div>`).join("");
@@ -447,8 +459,8 @@ function admin(){
     <div class="card"><b>Funny video</b>${fld("vtitle","Title")}${fld("vurl","Video link (direct .mp4 link)","https://....mp4")}
     ${ST.vids.some(v=>!v.poster_url)?`<button class="btn ghost" data-a="thumbs">Create thumbnails for ${ST.vids.filter(v=>!v.poster_url).length} video${ST.vids.filter(v=>!v.poster_url).length===1?"":"s"}</button>`:""}<label for="v_file">Or upload a short video</label><small>MP4 or WebM, under 25 MB. Clips under 30 seconds work best.</small><input id="v_file" type="file" accept="video/mp4,video/webm"><button class="btn" data-a="postvideo">Add video</button>
     ${ST.vids.map(v=>`<div class="row"><span>${esc(v.title)}</span><button class="sm" data-a="delvid" data-id="${v.id}">Delete</button></div>`).join("")}</div>`;
-  return `<h1>Admin</h1><p class="sub">Drivers, payments and shops.</p>${msgs()}
-  ${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
+  return `<h1>Admin</h1><p class="sub">Businesses, drivers, payments and shops.</p>${msgs()}
+  ${owners?`<h2>Businesses waiting for approval</h2>${owners}`:""}${pend?`<h2>Drivers waiting for approval</h2>${pend}`:""}${pays?`<h2>Payments to confirm</h2>${pays}`:""}${trips?`<h2>Trips not confirmed yet</h2>${trips}`:""}
   ${feedAdmin}<h2>Shops</h2>${rows||'<div class="card"><small>No shops yet.</small></div>'}
   <div class="card"><h2>Your bank details</h2><small>Only logged-in owners, drivers and you can see these.</small>${bank}</div>`;
 }
@@ -509,7 +521,7 @@ async function sb(path,opt={}){
 }
 async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
-  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
+  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name,requested_role&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
   const role=(p&&p[0]&&p[0].role)||"customer";
   user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; xtab="main"; loc=null; locId=null; authMsg=""; ST.profile=(p&&p[0])||{}; if(ST.profile.phone) ST.form.phone=ST.form.phone||ST.profile.phone;
   try{ await loadAreas(); const ar=ST.areas.find(x=>x.name===ST.profile.area_name); if(role==="customer"&&ar){ loc=ar.name; locId=ar.id; } if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } try{ await loadChats(); }catch(e){} }catch(e){ ST.err=e.message; }
@@ -532,17 +544,19 @@ async function doLogin(){
   render();
 }
 async function doSignup(){
-  const f=ST.form, email=(f.semail||"").trim(), password=(document.getElementById("spw")||{}).value||"", phone=(f.sphone||"").replace(/[\s-]/g,"");
+  const f=ST.form, email=(f.semail||"").trim(), password=(document.getElementById("spw")||{}).value||"", phone=(f.sphone||"").replace(/[\s-]/g,""), biz=f.sacct==="owner",
+    extra=biz?{account_type:"owner",shop_name:(f.sshop||"").trim(),shop_address:(f.saddr||"").trim(),category:f.scat||"food"}:{};
   try{
     if(!(f.sname||"").trim()||!(f.ssurname||"").trim()) throw new Error("Please type your first name and surname.");
     if(!f.sarea) throw new Error("Please choose your location.");
+    if(biz&&!(f.sshop||"").trim()) throw new Error("Please type your business name.");
     if(!/^(\+27|0)[0-9]{9}$/.test(phone)) throw new Error("Please type a valid cell number, for example 081 234 5678.");
     if(!email) throw new Error("Please type your email address.");
     if(password.length<6) throw new Error("The password must be at least 6 characters.");
     if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
     tsCheck();
-    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1"},...tsMeta()})});
-    if(r&&r.access_token) await afterLogin(r); else { authMsg="Account created. Check your email to confirm it, then log in."; authView="login"; }
+    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1",...extra},...tsMeta()})});
+    if(r&&r.access_token) await afterLogin(r); else { authMsg="Account created. Check your email to confirm it, then log in."+(biz?" Your business will be checked before it goes live.":""); authView="login"; }
   }catch(e){ authMsg=e.message; }
   render();
 }
@@ -593,7 +607,10 @@ function signupScreen(){
   const areas=[["","Choose your location"],...ST.areas.map(a=>[a.name,a.name])];
   return `<div class="card"><h2>Create account</h2>
   ${authMsg?`<div class="banner bad">${esc(authMsg)}</div>`:""}
-  ${fld("sname","First name")}${fld("ssurname","Surname")}${sel("sarea","Your location in Inanda",areas)}${fld("sphone","Cell number","e.g. 081 234 5678","tel")}
+  ${sel("sacct","I am signing up as",[["customer","A customer"],["owner","A business owner"]])}
+  ${fld("sname","First name")}${fld("ssurname","Surname")}${sel("sarea",ST.form.sacct==="owner"?"Where is your business in Inanda?":"Your location in Inanda",areas)}
+  ${ST.form.sacct==="owner"?fld("sshop","Business name")+fld("saddr","Business address","House number and street")+sel("scat","What type of business is it?",[["food","Food"],["construction","Construction"],["beauty","Beauty"]])+'<div class="note">We check every business before it goes live. You will see your shop screen after you are approved.</div>':""}
+  ${fld("sphone","Cell number","e.g. 081 234 5678","tel")}
   <details class="privnote" open><summary>Privacy note: how we use your cell number</summary>
     <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. We keep your details safely, and you can ask us to delete them.</p></details>
   ${fld("semail","Email address","","email")}
@@ -719,6 +736,7 @@ const H={
   delnews:(el,id)=>go(async()=>{await sb("/rest/v1/inanda_news?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
   delvid:(el,id)=>go(async()=>{await sb("/rest/v1/funny_videos?id=eq."+id,{method:"DELETE",headers:{Prefer:"return=minimal"}});await loadFeed(true);}),
   approve:el=>go(async()=>{await rpc("approve_driver",{p_driver:el.dataset.v});await loadAdmin();}),
+  approveown:el=>go(async()=>{await rpc("approve_owner",{p_user:el.dataset.v});await loadAdmin();ST.note="Business approved. They can now log in to their shop screen.";}),
   payconfirm:(el,id)=>go(async()=>{await rpc("confirm_payment",{p_payment:id});await loadAdmin();}),
   payreject:(el,id)=>go(async()=>{await rpc("reject_payment",{p_payment:id});await loadAdmin();}),
   tripdone:(el,id)=>go(async()=>{await rpc("set_transport_status",{p_request:id,p_status:"completed"});await loadAdmin();}),
@@ -735,7 +753,7 @@ document.body.addEventListener("change",e=>{
   if(a==="bank"){ if(BANK){BANK[t.dataset.k]=t.value; saveBank(t.dataset.k,t.value);} }
   else if(a==="addr"){ ST.address=t.value; }
   else if(a==="chk"){ ST.form[t.dataset.k]=t.checked; }
-  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt"].includes(t.dataset.k)) render(); }
+  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt","sacct"].includes(t.dataset.k)) render(); }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
 function playCard(c){
