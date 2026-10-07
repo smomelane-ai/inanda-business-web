@@ -111,6 +111,13 @@ details.privnote summary{cursor:pointer;font-weight:600}
 .cat{font:inherit;font-weight:800;font-size:19px;min-height:112px;padding:16px 8px;border-radius:16px;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
 .cat .ci{font-size:36px;line-height:1}
 .cat:active{transform:scale(.98)}
+details.mem{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+details.mem summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;list-style:none;font-size:15px}
+details.mem summary::-webkit-details-marker{display:none}
+details.mem[open] summary{margin-bottom:8px}
+.mem-info{font-size:14px;line-height:1.6}
+.rep-log{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--bg);border-radius:10px;margin:8px 0}
+textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -125,9 +132,9 @@ details.privnote summary{cursor:pointer;font-weight:600}
 const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let tab="cust", ownView="due", cancelling=null, user=null, loc=null, locId=null;
-const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver"};
+const ROLES={cust:"Customer",own:"Shop owner",adm:"Admin",drv:"Driver",pend:"Your account"};
 let cview="home", xtab="main";
-const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},chats:[],thread:null,msgs:[],threadWith:null,unread:0,profile:{},req:false,news:[],vids:[],feedErr:""});
+const blank=()=>({areas:[],shops:[],shop:null,menu:[],cart:{},address:"",orders:[],due:{},stmt:[],mine:[],all:[],err:"",note:"",offers:[],trips:[],me:null,myRoutes:[],openReqs:[],myOffers:[],contacts:{},jobs:[],dDue:{},pend:[],pays:[],xtrips:[],form:{nsrc:"Chris"},chats:[],thread:null,msgs:[],threadWith:null,unread:0,profile:{},req:false,news:[],vids:[],feedErr:"",reporting:false,members:[],reports:[],atab:"over",mfilter:"pending",openm:{},custAppr:false,membersErr:"",shopApp:null});
 let ST=blank();
 const tagFor = st => ({placed:["New","bad"],accepted:["Accepted",""],delivered:["Delivered","ok"],cancelled:["Cancelled",""],open:["Waiting for drivers","bad"],requested:["Waiting for driver","bad"],started:["Trip started",""],declined:["Declined",""],completed:["Arrived safely","ok"]}[st]||[st,""]);
 const rpc=(fn,args)=>sb("/rest/v1/rpc/"+fn,{method:"POST",body:JSON.stringify(args)});
@@ -166,6 +173,9 @@ async function loadAdmin(){
     sb("/rest/v1/payments?select=id,payer_type,reference,amount_cents&status=eq.pending&order=id"),
     sb("/rest/v1/transport_requests?select=id,from_place,to_place,price_cents,started_at&status=eq.started&order=id")]);
   ST.all=r[0].map(s=>({...s,...(r[1].find(d=>d.shop_id===s.id)||{})})); ST.pend=r[2]; ST.pays=r[3]; ST.xtrips=r[4];
+  try{ ST.members=await rpc("admin_members",{}); ST.membersErr=""; }catch(e){ ST.members=[]; ST.membersErr=e.message; }
+  try{ ST.reports=await rpc("admin_reports",{}); }catch(e){ ST.reports=[]; }
+  try{ const cs=await sb("/rest/v1/platform_settings?select=customers_need_approval&id=eq.1"); ST.custAppr=!!(cs&&cs[0]&&cs[0].customers_need_approval); }catch(e){}
   ST.pendOwn=[];
   try{
     let ap; try{ ap=await sb("/rest/v1/shop_applications?select=user_id,shop_name,shop_address,area_name,category&order=created_at"); }
@@ -216,7 +226,7 @@ function grabFrame(src,local){
 async function makeThumb(src,local){          // best effort: a missing thumbnail never stops a post
   try{ const b=await grabFrame(src,local); return await uploadMedia(b,"thumbs"); }catch(e){ return null; }
 }
-async function loadChats(){ ST.chats=await rpc("my_chats",{}); ST.unread=ST.chats.reduce((a,c)=>a+(c.unread||0),0); }
+async function loadChats(){ ST.chats=await rpc("my_chats",{}); ST.unread=ST.chats.reduce((a,c)=>a+(c.unread||0),0); checkIncoming(); }
 async function loadThread(){ ST.msgs=ST.thread?await sb(`/rest/v1/chat_messages?select=id,sender_id,body,created_at&thread_id=eq.${ST.thread}&order=id.asc&limit=200`):[]; }
 async function openChat(id){
   await loadChats(); ST.thread=id; ST.threadWith=ST.chats.find(c=>c.chat_id===id)||{}; await loadThread();
@@ -262,7 +272,7 @@ async function upload(bucket,file,name){
     throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return path;
 }
-const reload=()=>user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed(true)]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed(true)]);
+const reload=()=>user.tab==="pend"?refreshPending():user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed(true)]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed(true)]);
 
 // ---- screens ----
 function food(){
@@ -308,14 +318,14 @@ function feed(){
 }
 const roleLabel=r=>({customer:"Customer",owner:"Shop",driver:"Driver",admin:"Support"}[r]||"");
 const mbadge=()=>`<span class="mbadge">${ST.unread?" ("+ST.unread+")":""}</span>`;
-function updateBadges(){ document.querySelectorAll(".mbadge").forEach(b=>{ b.textContent=ST.unread?" ("+ST.unread+")":""; }); }
+function updateBadges(){ document.querySelectorAll(".mbadge").forEach(b=>{ b.textContent=ST.unread?" ("+ST.unread+")":""; }); document.title=(ST.unread?"("+ST.unread+") ":"")+"Inanda Business Web"; }
 const logHtml=()=>ST.msgs.length?ST.msgs.map(m=>`<div class="bub ${m.sender_id===sess.user.id?"me":"them"}">${esc(m.body).replace(/\n/g,"<br>")}<span class="bt">${new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span></div>`).join(""):"<small>No messages yet. Say hello.</small>";
 const chatRows=()=>ST.chats.map(c=>`<button class="chatrow" data-a="openchat" data-id="${c.chat_id}"><div><b>${esc(c.with_name)}</b> <span class="tag">${esc(roleLabel(c.with_role))}</span><br><small>${esc((c.last_body||"").slice(0,70))}</small></div><div class="chatmeta">${ago(c.last_at)}${c.unread?`<span class="dot">${c.unread}</span>`:""}</div></button>`).join("")||'<div class="card"><small>No messages yet. To start one, tap Message on a shop, a driver, an order or a trip.</small></div>';
 function messagesScreen(){
   if(ST.thread){ const w=ST.threadWith||{};
-    return `<button class="sm" data-a="closechat">← Back</button><h1 style="margin-top:8px">${esc(w.with_name||"Chat")}</h1><p class="sub">${esc(roleLabel(w.with_role))}</p>${msgs()}
+    return `<button class="sm" data-a="closechat">← Back</button>${user.tab!=="adm"?'<button class="sm" style="float:right" data-a="reportopen">Report</button>':""}<h1 style="margin-top:8px">${esc(w.with_name||"Chat")}</h1><p class="sub">${esc(roleLabel(w.with_role))}</p>${msgs()}${reportForm()}
     <div class="card"><div id="chatlog" class="chatlog">${logHtml()}</div><div class="chatbar"><input id="chatin" type="text" maxlength="1000" placeholder="Type a message" autocomplete="off" aria-label="Message"><button class="btn" style="width:auto;margin:0;padding:12px 18px" data-a="send">Send</button></div></div>`; }
-  return `<h1>Messages</h1><p class="sub">Chat with shops, drivers and support about an order or a trip.</p>${msgs()}<div id="chatlist">${chatRows()}</div>${user.tab!=="adm"?'<button class="btn ghost" data-a="support">Contact support</button>':""}<div class="note">Be polite. Never send money or passwords in a chat. Customers cannot message other customers.</div>`;
+  return `<h1>Messages</h1><p class="sub">Chat with shops, drivers and support about an order or a trip.</p>${msgs()}<div id="chatlist">${chatRows()}</div>${user.tab!=="adm"?'<button class="btn ghost" data-a="support">Contact support</button>':""}<div class="note">Be polite. Never send money or passwords in a chat. Customers cannot message other customers. If you report a chat, the last 30 messages are sent to the admin.</div>`;
 }
 function msgTabs(){
   const main={own:"My shop",drv:"My jobs",adm:"Admin"}[user.tab];
@@ -330,7 +340,7 @@ function customer(){
   const seg=`<div class="seg" role="tablist">${[["home","Home"],["msgs","Messages"]].map(([k,l])=>`<button role="tab" aria-checked="${cview===k}" data-a="cview" data-v="${k}">${l}${k==="msgs"?mbadge():""}</button>`).join("")}</div>`;
   if(cview==="apply") return seg+applyScreen();
   if(cview==="msgs") return seg+messagesScreen();
-  const waiting=(ST.profile&&ST.profile.requested_role==="owner")?'<div class="banner bad"><strong>Your business is waiting for approval</strong>We are checking your details. After you are approved, log out and log in again to open your shop screen.</div>':"";
+  const waiting=(ST.profile&&ST.profile.requested_role==="owner")?'<div class="banner bad"><strong>Your business is waiting for approval</strong>We are checking your details. After you are approved, log out and log in again to open your shop screen.</div>':(ST.profile&&ST.profile.requested_role==="driver"&&ST.me&&ST.me.status==="pending")?'<div class="banner bad"><strong>Your driver application is waiting for approval</strong>We are checking your details. After you are approved, log out and log in again to open your driver screen.</div>':"";
   return seg+waiting+(cview==="home"?homeTiles()+feed():cview==="drive"?driveTab():(loc?food():areaScreen()))+(ST.me?"":'<button class="sm" style="margin:2px 0 14px" data-a="cview" data-v="apply">Become a driver</button>');
 }
 function driveTab(){
@@ -444,7 +454,7 @@ function payScreen(){
 }
 const idn=d=>{const p=d.driver_private; return ((Array.isArray(p)?p[0]:p)||{}).id_number||"";};
 const catLabel=c=>({food:"Food",construction:"Construction",beauty:"Beauty"}[c]||"Food");
-function admin(){
+function adminOverview(){
   const owners=(ST.pendOwn||[]).map(o=>`<div class="card"><div class="row"><b>${esc(o.app.shop_name)}</b><span class="tag">${esc(catLabel(o.app.category))}</span></div><small>${esc(o.name)} ${esc(o.surname||"")} · ${esc(o.phone||"")}<br>${esc(o.app.shop_address||"")}${o.app.area_name?" · "+esc(o.app.area_name):""}</small><button class="btn" data-a="approveown" data-v="${o.id}">Approve business</button></div>`).join("");
   const pend=ST.pend.map(d=>`<div class="card"><b>${esc(d.full_name)}</b><br><small>${esc(d.cellphone)} · ${esc(d.vehicle_colour)} ${esc(d.vehicle_make)} · ${esc(d.plate_number)}<br>ID number: ${esc(idn(d))}<br>Check the ID photo in Supabase > Storage > driver-ids before approving.</small><button class="btn" data-a="approve" data-v="${d.id}">Approve driver</button></div>`).join("");
   const pays=ST.pays.map(p=>`<div class="card"><div class="row"><b>${esc(p.reference)}</b><b>${R(p.amount_cents)}</b></div><small>${p.payer_type==="shop"?"Shop owner":"Driver"} says they have paid. Check your bank account first.</small><button class="btn" data-a="payconfirm" data-id="${p.id}">Money received</button><button class="btn ghost" data-a="payreject" data-id="${p.id}">Not received</button></div>`).join("");
@@ -464,6 +474,116 @@ function admin(){
   ${feedAdmin}<h2>Shops</h2>${rows||'<div class="card"><small>No shops yet.</small></div>'}
   <div class="card"><h2>Your bank details</h2><small>Only logged-in owners, drivers and you can see these.</small>${bank}</div>`;
 }
+
+// ---- sign-up helpers, approvals, reports, sounds ----
+function snapForm(){
+  document.querySelectorAll('#app [data-a="form"]').forEach(e=>{ ST.form[e.dataset.k]=e.value; });
+  document.querySelectorAll('#app [data-a="chk"]').forEach(e=>{ ST.form[e.dataset.k]=e.checked; });
+  const pw=document.getElementById("spw"); if(pw) ST.form.spwv=pw.value;
+}
+async function loadPending(){
+  ST.me=null; ST.shopApp=null;
+  try{ await loadMe(); }catch(e){}
+  try{ const a=await sb(`/rest/v1/shop_applications?select=shop_name,shop_address&user_id=eq.${sess.user.id}`); ST.shopApp=a[0]||null; }catch(e){}
+}
+async function refreshPending(){
+  const p=await sb("/rest/v1/profiles?select=status&id=eq."+sess.user.id);
+  if(p&&p[0]&&p[0].status==="approved"){ await afterLogin(sess); ST.note="You are approved. Welcome!"; }
+  else await loadPending();
+}
+function pendingScreen(){
+  const p=ST.profile||{}, req=p.requested_role||"customer";
+  if(p.status==="suspended") return `<h1>Account suspended</h1>${msgs()}<div class="card"><div class="banner bad"><strong>Your account is suspended</strong>Please contact Inanda Business Web.</div></div>`;
+  if(req==="driver"&&!ST.me) return applyScreen();
+  const who=req==="driver"?"driver":req==="owner"?"shop owner":"customer";
+  let det="";
+  if(req==="driver"&&ST.me) det=`<div class="note">${person({...ST.me,photo:""})}</div>`;
+  if(req==="owner"&&ST.shopApp) det=`<div class="note">Shop: <b>${esc(ST.shopApp.shop_name)}</b>${ST.shopApp.shop_address?"<br>"+esc(ST.shopApp.shop_address):""}</div>`;
+  return `<h1>Almost there</h1><p class="sub">Welcome to Inanda Business Web.</p>${msgs()}<div class="card"><div class="banner bad"><strong>Waiting for approval</strong>Your ${who} account is being checked by the admin. You can use the app once you are approved. Tap Refresh to check.</div>${det}<button class="btn" data-a="refresh">Refresh</button></div>`;
+}
+const REASONS=[["abuse","Abuse or insults"],["scam","Scam or asking for money"],["spam","Spam"],["unsafe","I feel unsafe"],["other","Something else"]];
+function reportForm(){
+  if(!ST.reporting) return "";
+  return `<div class="card"><h2>Report this chat</h2>${sel("rreason","Reason",REASONS)}${area("rnote","What happened? (optional)","Up to 500 characters")}<div class="note">If you report a chat, the last 30 messages are sent to the admin so they can check what happened.</div><button class="btn" data-a="reportsend">Send report</button><button class="btn ghost" data-a="reportcancel">Cancel</button></div>`;
+}
+const kindOf=m=>m.m_role==="admin"?"admin":(m.m_role==="driver"||m.m_driver_status)?"driver":m.m_role==="owner"?"owner":(m.m_requested==="driver"||m.m_requested==="owner")?m.m_requested:"customer";
+const KLAB={driver:"Driver",owner:"Shop owner",customer:"Customer",admin:"Admin"};
+const needsOk=m=>m.m_status==="pending"||m.m_driver_status==="pending"||(m.m_role==="customer"&&(m.m_requested==="owner"||m.m_requested==="driver"));
+const MF=[["pending","Pending"],["driver","Drivers"],["owner","Shop owners"],["customer","Customers"],["suspended","Suspended"],["all","All"]];
+const mmatch=(m,f)=>f==="all"||(f==="pending"?needsOk(m):f==="suspended"?m.m_status==="suspended":(m.m_status!=="suspended"&&kindOf(m)===f));
+function memberCard(m){
+  const k=kindOf(m), nm=((m.m_name||"")+" "+(m.m_surname||"")).trim()||"No name";
+  const st=m.m_status==="suspended"?'<span class="tag bad">Suspended</span>':needsOk(m)?'<span class="tag bad">Pending</span>':'<span class="tag ok">Approved</span>';
+  let extra="";
+  if(k==="driver") extra=m.m_vehicle?`Vehicle: ${esc(m.m_vehicle)}<br>ID number: ${esc(m.m_id_number||"-")}<br>Driver status: ${esc(m.m_driver_status||"-")}<br><small>Check the ID photo in Supabase &gt; Storage &gt; driver-ids before approving.</small><br>`:"<small>Has not sent vehicle details yet.</small><br>";
+  if(k==="owner") extra=m.m_shop?`Shop: ${esc(m.m_shop)}<br>Address: ${esc(m.m_shop_address||"-")}<br>`:(m.m_role==="owner"?"":"<small>Has not given shop details.</small><br>");
+  const canOk=needsOk(m)&&!(k==="driver"&&!m.m_vehicle)&&!(k==="owner"&&m.m_role!=="owner"&&!m.m_shop);
+  const acts=(canOk?`<button class="btn" data-a="mapprove" data-v="${m.m_id}" data-k="${k}">Approve</button>`:"")
+    +(m.m_status==="suspended"?`<button class="btn ghost" data-a="mreact" data-v="${m.m_id}">Reactivate</button>`:(k!=="admin"?`<button class="btn ghost" data-a="msusp" data-v="${m.m_id}">Suspend</button>`:""))
+    +`<button class="sm" style="margin-top:8px" data-a="chatwith" data-v="${m.m_id}">Message</button>`;
+  return `<details class="mem" data-mid="${m.m_id}" ${ST.openm[m.m_id]?"open":""}><summary><span>📁 <b>${esc(nm)}</b> <span class="tag">${KLAB[k]}</span></span>${st}</summary>
+    <div class="mem-info">Email: ${esc(m.m_email||"-")}<br>Cell: <a href="tel:${esc(m.m_phone||"")}">${esc(m.m_phone||"-")}</a><br>Location: ${esc(m.m_area||"-")}<br>Joined: ${m.m_created?new Date(m.m_created).toLocaleDateString():"-"}<br>${extra}</div>${acts}</details>`;
+}
+function membersScreen(){
+  const f=ST.mfilter, list=ST.members.filter(m=>mmatch(m,f));
+  const seg=`<div class="seg" role="tablist">${MF.map(([k,l])=>`<button role="tab" aria-checked="${f===k}" data-a="mfilter" data-v="${k}">${l} (${ST.members.filter(m=>mmatch(m,k)).length})</button>`).join("")}</div>`;
+  return `<h1>Members</h1><p class="sub">Everyone who has registered. Open a folder to see their details.</p>${msgs()}${ST.membersErr?`<div class="banner bad">${esc(ST.membersErr)}</div>`:""}
+  <div class="card"><label class="chk" style="margin:0"><input type="checkbox" data-a="custappr" ${ST.custAppr?"checked":""}><span>New customers need my approval before they can use the app</span></label></div>
+  ${seg}${list.map(memberCard).join("")||'<div class="card"><small>Nobody here yet.</small></div>'}`;
+}
+function reportsScreen(){
+  const REAS=Object.fromEntries(REASONS);
+  const cards=ST.reports.map(r=>{
+    const log=(r.r_evidence||[]).map(x=>`<div class="bub ${x.from==="reporter"?"me":"them"}">${esc(x.text)}<span class="bt">${x.at?new Date(x.at).toLocaleString([],{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}</span></div>`).join("");
+    return `<div class="card"><div class="row"><b>${esc(r.r_reported)}</b><span class="tag bad">${esc(REAS[r.r_reason]||r.r_reason)}</span></div><small>${esc(roleLabel(r.r_reported_role))} · reported by ${esc(r.r_reporter)} · ${ago(r.r_created)}</small>${r.r_note?`<p style="margin:8px 0 0">${esc(r.r_note)}</p>`:""}<div class="rep-log">${log||"<small>No messages saved.</small>"}</div><small>Right side: ${esc(r.r_reporter)} (who reported). Left side: ${esc(r.r_reported)}.</small><button class="btn ghost" data-a="msusp" data-v="${r.r_reported_id}">Suspend ${esc(r.r_reported)}</button><button class="btn" data-a="rclose" data-id="${r.r_id}">Close report</button></div>`;
+  }).join("");
+  return `<h1>Reports</h1><p class="sub">Chats that people reported. Only the last 30 messages are saved.</p>${msgs()}${cards||'<div class="card"><small>No open reports.</small></div>'}`;
+}
+function admin(){
+  const np=ST.members.filter(needsOk).length, nr=ST.reports.length;
+  const seg=`<div class="seg" role="tablist">${[["over","Overview"],["mem","Members"+(np?" ("+np+")":"")],["rep","Reports"+(nr?" ("+nr+")":"")]].map(([k,l])=>`<button role="tab" aria-checked="${ST.atab===k}" data-a="atab" data-v="${k}">${l}</button>`).join("")}</div>`;
+  return seg+(ST.atab==="mem"?membersScreen():ST.atab==="rep"?reportsScreen():adminOverview());
+}
+document.addEventListener("toggle",e=>{ const d=e.target; if(d&&d.dataset&&d.dataset.mid){ if(d.open) ST.openm[d.dataset.mid]=1; else delete ST.openm[d.dataset.mid]; } },true);
+
+// ---- sounds and alerts ----
+let AC=null, soundOn=(()=>{ try{ return localStorage.getItem("inanda_snd")!=="0"; }catch(e){ return true; } })();
+let prevUnread=null, seenOrders=null, seenReqs=null;
+function unlockAudio(){ try{ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; if(C) AC=new C(); } if(AC&&AC.state==="suspended") AC.resume(); }catch(e){} }
+["pointerdown","keydown","touchstart"].forEach(ev=>addEventListener(ev,unlockAudio,{passive:true}));
+function ding(){
+  if(!AC) return;
+  try{ const t=AC.currentTime;
+    [[880,0],[1175,.16]].forEach(([f,d])=>{ const o=AC.createOscillator(), g=AC.createGain(); o.type="sine"; o.frequency.value=f;
+      g.gain.setValueAtTime(0,t+d); g.gain.linearRampToValueAtTime(.3,t+d+.02); g.gain.exponentialRampToValueAtTime(.001,t+d+.4);
+      o.connect(g); g.connect(AC.destination); o.start(t+d); o.stop(t+d+.45); });
+  }catch(e){}
+}
+function notifyIncoming(){ if(!soundOn) return; unlockAudio(); ding(); try{ if(navigator.vibrate) navigator.vibrate([150,80,150]); }catch(e){} }
+function checkIncoming(){
+  const cur={}; ST.chats.forEach(c=>{ cur[c.chat_id]=c.unread||0; });
+  if(prevUnread && ST.chats.some(c=>(c.unread||0)>(prevUnread[c.chat_id]||0))) notifyIncoming();
+  prevUnread=cur;
+}
+async function pollWork(){
+  if(!user||!sess||document.visibilityState==="hidden") return;
+  try{
+    if(user.tab==="own"){
+      await loadOwner();
+      const ids=(ST.orders||[]).filter(o=>o.status==="placed").map(o=>o.id);
+      if(seenOrders&&ids.some(i=>!seenOrders.includes(i))) notifyIncoming();
+      seenOrders=ids;
+    }else if(user.tab==="drv"){
+      await loadDriver();
+      const ids=(ST.openReqs||[]).map(r=>r.id);
+      if(seenReqs&&ids.some(i=>!seenReqs.includes(i))) notifyIncoming();
+      seenReqs=ids;
+    }else return;
+    const a=document.activeElement, typing=a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName);
+    if(!typing&&xtab==="main"&&ownView==="due"&&!cancelling) render();
+  }catch(e){}
+}
+
 const LOGO = `<svg viewBox="0 0 260 226" role="img" aria-label="Inanda Business Web logo: a woman paying a man">
 <circle cx="130" cy="102" r="94" fill="#f2b705"/><circle cx="130" cy="102" r="94" fill="none" stroke="#12352b" stroke-width="5"/>
 <path d="M60 168h140" stroke="#12352b" stroke-width="4" stroke-linecap="round"/>
@@ -521,10 +641,11 @@ async function sb(path,opt={}){
 }
 async function afterLogin(s){
   sess=s; localStorage.setItem("inanda_sess",JSON.stringify(s));
-  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name,requested_role&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
+  let p; try{ p=await sb("/rest/v1/profiles?select=role,phone,area_name,status,requested_role&id=eq."+s.user.id); }catch(e){ p=await sb("/rest/v1/profiles?select=role&id=eq."+s.user.id); }
   const role=(p&&p[0]&&p[0].role)||"customer";
-  user={tab:{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; xtab="main"; loc=null; locId=null; authMsg=""; ST.profile=(p&&p[0])||{}; if(ST.profile.phone) ST.form.phone=ST.form.phone||ST.profile.phone;
-  try{ await loadAreas(); const ar=ST.areas.find(x=>x.name===ST.profile.area_name); if(role==="customer"&&ar){ loc=ar.name; locId=ar.id; } if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } try{ await loadChats(); }catch(e){} }catch(e){ ST.err=e.message; }
+  const status=(p&&p[0]&&p[0].status)||"approved"; prevUnread=null; seenOrders=null; seenReqs=null; user={tab:(status!=="approved"&&role!=="admin")?"pend":{customer:"cust",owner:"own",admin:"adm",driver:"drv"}[role]}; cview="home"; tab=user.tab; ownView="due"; xtab="main"; loc=null; locId=null; authMsg=""; ST.profile=(p&&p[0])||{}; if(ST.profile.phone) ST.form.phone=ST.form.phone||ST.profile.phone;
+  try{ await loadAreas(); const ar=ST.areas.find(x=>x.name===ST.profile.area_name); if(role==="customer"&&ar){ loc=ar.name; locId=ar.id; } if(user.tab==="pend") await loadPending(); else if(role==="owner") await loadOwner(); else if(role==="admin") { await loadAdmin(); await loadFeed(); } else if(role==="driver") await loadDriver(); else { await loadCust(); await loadMe(); await loadFeed(); } try{ if(user.tab!=="pend") await loadChats(); }catch(e){} }catch(e){ ST.err=e.message; }
+  seenOrders=(ST.orders||[]).filter(o=>o.status==="placed").map(o=>o.id); seenReqs=(ST.openReqs||[]).map(r=>r.id);
   if(role!=="customer") loadBank();
 }
 async function loadBank(){
@@ -544,19 +665,36 @@ async function doLogin(){
   render();
 }
 async function doSignup(){
-  const f=ST.form, email=(f.semail||"").trim(), password=(document.getElementById("spw")||{}).value||"", phone=(f.sphone||"").replace(/[\s-]/g,""), biz=f.sacct==="owner",
-    extra=biz?{account_type:"owner",shop_name:(f.sshop||"").trim(),shop_address:(f.saddr||"").trim(),category:f.scat||"food"}:{};
+  snapForm();
+  const f=ST.form, t=f.sacct||"customer", biz=t==="owner", drv=t==="driver", email=(f.semail||"").trim(), password=f.spwv||"", phone=(f.sphone||"").replace(/[\s-]/g,""),
+    extra=biz?{account_type:"owner",shop_name:(f.sshop||"").trim(),shop_address:(f.saddr||"").trim(),category:f.scat||"food"}:drv?{account_type:"driver"}:{};
+  const phf=(document.getElementById("f_photo")||{}).files, idf=(document.getElementById("f_idfile")||{}).files;
   try{
     if(!(f.sname||"").trim()||!(f.ssurname||"").trim()) throw new Error("Please type your first name and surname.");
     if(!f.sarea) throw new Error("Please choose your location.");
     if(biz&&!(f.sshop||"").trim()) throw new Error("Please type your business name.");
+    if(drv){
+      if(!(f.make||"").trim()||!(f.colour||"").trim()||!(f.plate||"").trim()||!(f.idno||"").trim()) throw new Error("Please fill in your vehicle make, colour, number plate and ID number.");
+      if(!(phf&&phf[0])||!(idf&&idf[0])) throw new Error("Please add your face photo and a photo of your ID.");
+    }
     if(!/^(\+27|0)[0-9]{9}$/.test(phone)) throw new Error("Please type a valid cell number, for example 081 234 5678.");
     if(!email) throw new Error("Please type your email address.");
     if(password.length<6) throw new Error("The password must be at least 6 characters.");
     if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
     tsCheck();
     const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1",...extra},...tsMeta()})});
-    if(r&&r.access_token) await afterLogin(r); else { authMsg="Account created. Check your email to confirm it, then log in."+(biz?" Your business will be checked before it goes live.":""); authView="login"; }
+    if(r&&r.access_token){
+      const photo=phf&&phf[0], idfile=idf&&idf[0];
+      await afterLogin(r); f.spwv="";
+      if(drv){
+        f.name=f.sname.trim()+" "+f.ssurname.trim(); f.phone=phone;
+        try{
+          const pp=await upload("driver-photos",photo,"photo"), ip=await upload("driver-ids",idfile,"id");
+          await rpc("apply_as_driver",{p_name:f.name,p_phone:phone,p_make:f.make.trim(),p_colour:f.colour.trim(),p_plate:f.plate.trim(),p_type:f.vtype||"bakkie",p_id_number:f.idno.trim(),p_photo_path:pp,p_id_doc_path:ip});
+          await loadMe(); ST.note="Application sent. We will check your details and approve you.";
+        }catch(e){ ST.err="Your account was created, but we could not send your vehicle details ("+e.message+"). Tap Become a driver to send them again."; }
+      }
+    }else{ authMsg="Account created. Check your email to confirm it, then log in."+(biz?" Your business will be checked before it goes live.":"")+(drv?" After you log in, tap Become a driver to send your vehicle details.":""); authView="login"; }
   }catch(e){ authMsg=e.message; }
   render();
 }
@@ -603,19 +741,22 @@ function loginScreen(){
   <button class="sm" style="margin-top:12px" data-a="forgot">Forgot password?</button>
   <div class="note">Shop owners and admin get their access from Inanda Business Web. Log in with the email you were given.</div></div>`;
 }
+const drvFields=()=>`${fld("make","Vehicle make","e.g. Toyota Hilux")}${fld("colour","Vehicle colour")}${fld("plate","Number plate")}${sel("vtype","Vehicle type",[["bakkie","Bakkie"],["car","Car"],["truck","Truck"],["other","Other"]])}${fld("idno","ID number")}<label for="f_photo">Your face photo</label><input id="f_photo" type="file" accept="image/*"><label for="f_idfile">Photo of your ID</label><input id="f_idfile" type="file" accept="image/*">`;
 function signupScreen(){
   const areas=[["","Choose your location"],...ST.areas.map(a=>[a.name,a.name])];
   return `<div class="card"><h2>Create account</h2>
   ${authMsg?`<div class="banner bad">${esc(authMsg)}</div>`:""}
-  ${sel("sacct","I am signing up as",[["customer","A customer"],["owner","A business owner"]])}
+  ${ST.areas.length?"":'<div class="note">Loading locations… <button class="sm" data-a="reloadareas">Try again</button></div>'}
+  ${sel("sacct","I am signing up as",[["customer","A customer"],["owner","A business owner"],["driver","A driver"]])}
   ${fld("sname","First name")}${fld("ssurname","Surname")}${sel("sarea",ST.form.sacct==="owner"?"Where is your business in Inanda?":"Your location in Inanda",areas)}
   ${ST.form.sacct==="owner"?fld("sshop","Business name")+fld("saddr","Business address","House number and street")+sel("scat","What type of business is it?",[["food","Food"],["construction","Construction"],["beauty","Beauty"]])+'<div class="note">We check every business before it goes live. You will see your shop screen after you are approved.</div>':""}
+  ${ST.form.sacct==="driver"?drvFields():""}
   ${fld("sphone","Cell number","e.g. 081 234 5678","tel")}
   <details class="privnote" open><summary>Privacy note: how we use your cell number</summary>
-    <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. We keep your details safely, and you can ask us to delete them.</p></details>
+    <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. If you report a chat, the last 30 messages of that chat are sent to the admin.${ST.form.sacct==="driver"?" Once you are approved, customers see your name, face photo, vehicle details and cell number. Your ID number and ID photo are only seen by the admin.":""} We keep your details safely, and you can ask us to delete them.</p></details>
   ${fld("semail","Email address","","email")}
-  <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" placeholder="At least 6 characters">
-  <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>I have read the privacy note and I agree.</span></label>
+  <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" value="${esc(ST.form.spwv||"")}" placeholder="At least 6 characters">
+  <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>${ST.form.sacct==="driver"?"I agree that Inanda Business Web keeps my ID details to check who I am, and shows my name, photo, vehicle and cell number to customers.":"I have read the privacy note and I agree."}</span></label>
   ${tsBox()}
   <button class="btn" data-a="signup">Create account</button>
   <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
@@ -641,15 +782,26 @@ function areaScreen(){
 }
 function render(){
   const cust=user&&user.tab==="cust";
-  document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
-  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
+  document.getElementById("bar").innerHTML = user?`<span><b>${ROLES[user.tab]}</b>${cust&&loc?" · "+esc(loc):""}</span><span>${cust&&loc?'<button class="sm" data-a="area">Change area</button> ':''}<button class="sm" data-a="sndtoggle" aria-label="Message sound on or off">${soundOn?"🔔":"🔕"}</button> <button class="sm" data-a="refresh">Refresh</button> <button class="sm" data-a="logout">Log out</button></span>`:"";
+  document.getElementById("app").innerHTML = !user?(authView==="forgot"?forgotScreen():authView==="reset"?resetScreen():authView==="signup"?signupScreen():loginScreen()):tab==="pend"?pendingScreen():tab==="cust"?customer():msgTabs()+(xtab==="msgs"?messagesScreen():tab==="own"?owner():tab==="drv"?driver():admin());
   if(!user) tsMount();
 }
 const patchShop=(id,body)=>sb("/rest/v1/shops?id=eq."+id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
 const H={
   login:doLogin, signup:doSignup, sendreset:doRecover, setpw:doSetPw,
-  forgot:()=>{authView="forgot";authMsg="";}, tosignup:()=>{authView="signup";authMsg="";}, tologin:()=>{authView="login";authMsg="";},
-  logout:()=>{user=null;loc=null;locId=null;sess=null;BANK=null;ST=blank();localStorage.removeItem("inanda_sess");},
+  reloadareas:()=>{ snapForm(); loadAreas().then(()=>render()).catch(()=>{ authMsg="Could not load the locations. Check your internet and try again."; render(); }); },
+  sndtoggle:()=>{ soundOn=!soundOn; try{ localStorage.setItem("inanda_snd",soundOn?"1":"0"); }catch(e){} if(soundOn){ unlockAudio(); ding(); } },
+  reportopen:()=>{ ST.reporting=true; }, reportcancel:()=>{ ST.reporting=false; },
+  reportsend:()=>go(async()=>{ const f=ST.form; await rpc("report_chat",{p_thread:ST.thread,p_reason:f.rreason||"abuse",p_note:(f.rnote||"").slice(0,500)}); ST.reporting=false; f.rnote=""; ST.note="Thank you. Your report was sent to the admin."; }),
+  atab:el=>{ ST.atab=el.dataset.v; }, mfilter:el=>{ ST.mfilter=el.dataset.v; },
+  mapprove:el=>go(async()=>{ const k=el.dataset.k, id=el.dataset.v;
+    if(k==="driver") await rpc("approve_driver",{p_driver:id}); else if(k==="owner") await rpc("approve_owner",{p_user:id}); else await rpc("approve_member",{p_user:id});
+    await loadAdmin(); ST.note="Approved."; }),
+  msusp:el=>{ if(!confirm("Suspend this person? They will not be able to log in.")) return; return go(async()=>{ await rpc("suspend_member",{p_user:el.dataset.v}); await loadAdmin(); ST.note="Suspended."; }); },
+  mreact:el=>go(async()=>{ await rpc("reactivate_member",{p_user:el.dataset.v}); await loadAdmin(); ST.note="Reactivated."; }),
+  rclose:(el,id)=>go(async()=>{ await rpc("resolve_report",{p_report:id}); await loadAdmin(); }),
+  forgot:()=>{authView="forgot";authMsg="";}, tosignup:()=>{authView="signup";authMsg="";if(!ST.areas.length) loadAreas().then(()=>render()).catch(()=>{});}, tologin:()=>{authView="login";authMsg="";},
+  logout:()=>{const keep=ST.areas; user=null;loc=null;locId=null;sess=null;BANK=null;ST=blank();ST.areas=keep;prevUnread=null;seenOrders=null;seenReqs=null;authView="login";localStorage.removeItem("inanda_sess");},
   area:()=>{loc=null;locId=null;ST.shop=null;},
   loc:el=>go(async()=>{loc=el.dataset.v;locId=+el.dataset.id;ST.shop=null;await loadCust();}),
   refresh:()=>go(reload),
@@ -696,7 +848,7 @@ const H={
   chatwith:el=>go(async()=>{ await openChat(await rpc("start_chat",{p_other:el.dataset.v})); }),
   support:()=>go(async()=>{ await openChat(await rpc("support_chat",{})); }),
   openchat:(el,id)=>go(()=>openChat(id)),
-  closechat:()=>go(async()=>{ ST.thread=null; ST.msgs=[]; ST.threadWith=null; await loadChats(); }),
+  closechat:()=>go(async()=>{ ST.reporting=false; ST.thread=null; ST.msgs=[]; ST.threadWith=null; await loadChats(); }),
   send:async()=>{
     const i=document.getElementById("chatin"), t=i?i.value.trim():""; if(!t) return;
     try{ await rpc("send_message",{p_thread:ST.thread,p_body:t}); i.value=""; await loadThread();
@@ -753,7 +905,8 @@ document.body.addEventListener("change",e=>{
   if(a==="bank"){ if(BANK){BANK[t.dataset.k]=t.value; saveBank(t.dataset.k,t.value);} }
   else if(a==="addr"){ ST.address=t.value; }
   else if(a==="chk"){ ST.form[t.dataset.k]=t.checked; }
-  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt","sacct"].includes(t.dataset.k)) render(); }
+  else if(a==="custappr"){ const on=t.checked; go(async()=>{ await rpc("set_customer_approval",{p_on:on}); ST.custAppr=on; ST.note=on?"New customers now need your approval.":"New customers are approved automatically."; }); }
+  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt","sacct"].includes(t.dataset.k)){ if(t.dataset.k==="sacct") snapForm(); render(); } }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
 function playCard(c){
@@ -789,7 +942,7 @@ async function pollChat(){
   }catch(e){}
   pollBusy=false;
 }
-setInterval(()=>{ tick++; if((ST.thread&&inMsgs())||tick%3===0) pollChat(); },10000);
+setInterval(()=>{ tick++; if((ST.thread&&inMsgs())||tick%3===0) pollChat(); if(tick%6===0) pollWork(); },5000);
 document.getElementById("logo").innerHTML=LOGO; render(); restore();
 
 // ---- PWA: install button and service worker ----
