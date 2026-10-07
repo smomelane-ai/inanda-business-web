@@ -120,8 +120,12 @@ details.mem[open] summary{margin-bottom:8px}
 textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 main{padding-bottom:84px}
 .wishbtn{position:fixed;left:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;font:inherit;font-weight:700;font-size:14px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}
-#wishpanel{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:12px}
-#wishpanel[hidden]{display:none}
+#wishpanel,#legalpanel{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+#wishpanel[hidden],#legalpanel[hidden]{display:none}
+.legalfoot{text-align:center;padding:0 12px 96px}
+#legalpanel h3{margin:14px 0 4px;font-size:15px}
+#legalpanel p,#legalpanel li{font-size:14px;margin:4px 0}
+#legalpanel ul{padding-left:20px;margin:4px 0}
 </style>
 </head>
 <body>
@@ -132,8 +136,10 @@ main{padding-bottom:84px}
   <div id="app"></div>
   <div id="logo" style="text-align:center;margin:20px auto 8px;max-width:220px"></div>
 </main>
+<div class="legalfoot"><button class="sm" type="button" data-legal="open">Privacy policy and terms</button></div>
 <button id="wishbtn" class="wishbtn" type="button">📝 Wish list</button>
 <div id="wishpanel" hidden></div>
+<div id="legalpanel" hidden></div>
 <script>
 const R = c => "R" + (c/100).toFixed(2);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -689,7 +695,7 @@ async function doSignup(){
     if(password.length<6) throw new Error("The password must be at least 6 characters.");
     if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
     tsCheck();
-    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:"privacy-note-1",...extra},...tsMeta()})});
+    const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:LEGAL_VERSION,...extra},...tsMeta()})});
     if(r&&r.access_token){
       const photo=phf&&phf[0], idfile=idf&&idf[0];
       await afterLogin(r); f.spwv="";
@@ -761,9 +767,10 @@ function signupScreen(){
   ${fld("sphone","Cell number","e.g. 081 234 5678","tel")}
   <details class="privnote" open><summary>Privacy note: how we use your cell number</summary>
     <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. If you report a chat, the last 30 messages of that chat are sent to the admin.${ST.form.sacct==="driver"?" Once you are approved, customers see your name, face photo, vehicle details and cell number. Your ID number and ID photo are only seen by the admin.":""} We keep your details safely, and you can ask us to delete them.</p></details>
+  <p style="margin:8px 0 0"><button type="button" class="sm" data-legal="open">Read the full privacy policy and terms</button></p>
   ${fld("semail","Email address","","email")}
   <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" value="${esc(ST.form.spwv||"")}" placeholder="At least 6 characters">
-  <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>${ST.form.sacct==="driver"?"I agree that Inanda Business Web keeps my ID details to check who I am, and shows my name, photo, vehicle and cell number to customers.":"I have read the privacy note and I agree."}</span></label>
+  <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>${ST.form.sacct==="driver"?"I have read the privacy policy and terms. I agree that Inanda Business Web keeps my ID details to check who I am, and shows my name, photo, vehicle and cell number to customers.":"I have read the privacy policy and terms, and I agree."}</span></label>
   ${tsBox()}
   <button class="btn" data-a="signup">Create account</button>
   <button class="btn ghost" data-a="tologin">Back to log in</button></div>`;
@@ -1003,6 +1010,83 @@ function wishAdd(){
   });
   p.addEventListener("keydown",e=>{ if(e.key==="Escape"){ wishClose(); } else if(e.key==="Enter"&&(e.target.id==="w_name"||e.target.id==="w_price")){ e.preventDefault(); wishAdd(); } });
 })();
+
+// ---- privacy policy and terms (opens over any screen, so nothing typed is lost) ----
+const LEGAL_VERSION="policy-2026-10-07";
+const LEGAL_HTML=`<h2 style="margin:0 0 4px">Privacy policy and terms</h2>
+<p class="sub" style="margin:0 0 12px">Last updated: 7 October 2026</p>
+<h3>Who we are</h3>
+<p>Inanda Business Web (“we”, “us”) is a web app that helps people in Inanda order from local businesses and arrange transport. It is run by Lufefe Melane. The business is not yet registered as a company, so until it is, it is run by Lufefe Melane personally.</p>
+<p>Contact: smomelane@gmail.com or 081 710 6684.</p>
+
+<h2 style="margin:18px 0 6px">Part 1: Privacy policy</h2>
+<h3>What we collect</h3>
+<ul>
+<li>Everyone: first name, surname, email address, cell number, your area in Inanda, your password (kept scrambled, so we cannot read it) and when you agreed to this policy.</li>
+<li>Customers: your orders, delivery addresses and transport requests (pick-up address, what is being moved and when).</li>
+<li>Shops and other businesses: business name, address, type, menu and prices, and the orders you receive.</li>
+<li>Drivers: your name, face photo, vehicle details (make, colour, type, number plate), routes and prices, ID number and a photo of your ID.</li>
+<li>The messages you send in chats and the reports you make.</li>
+<li>A security check (Cloudflare Turnstile) runs when you log in or sign up, to tell people from bots. It may use details about your device and browser to do this.</li>
+<li>Your wish list is saved only on your own phone. We never receive it.</li>
+</ul>
+<h3>Why we use it</h3>
+<p>To run your account, deliver orders, match transport requests with drivers, check that drivers and businesses are real before they go live, keep the app safe, handle reports and complaints, and contact you about your account. We do not sell your information, and we do not send marketing without your permission.</p>
+<h3>Who can see what</h3>
+<ul>
+<li>Your cell number is shared only with a driver you choose for a trip, so they can call you.</li>
+<li>A driver’s name, face photo, vehicle details and cell number are shown to customers once the driver is approved.</li>
+<li>A driver’s ID number and ID photo are seen only by the admin of Inanda Business Web.</li>
+<li>A shop sees the orders placed with it, including the delivery address.</li>
+<li>Only the two people in a chat can read it. If someone reports a chat, the last 30 messages of that chat are sent to the admin so we can check what happened.</li>
+<li>We may share information with the police or a court if the law says we must.</li>
+</ul>
+<h3>Where it is kept</h3>
+<p>Your information is stored with Supabase in a data centre in Ireland (eu-west-1). The app files are hosted by GitHub, and the security check is provided by Cloudflare. These companies handle information for us, and they are outside South Africa. We use providers that have security measures in place.</p>
+<h3>How long we keep it</h3>
+<p>We keep your information while your account is active. If you ask us to delete your account, we delete your information, except what we must keep by law or to settle a dispute, such as payment records.</p>
+<h3>Keeping it safe</h3>
+<p>Logins are protected by passwords, and the database is set up so that people can only see what they are allowed to see. Please keep your password private and never send money or passwords in a chat. No system is perfectly safe. If something goes wrong that could harm you, we will tell you and the Information Regulator.</p>
+<h3>Your rights</h3>
+<p>You can ask us to show you what we hold about you, to correct it, or to delete it, and you can object to how we use it. Email or phone us. You can also complain to the Information Regulator: enquiries@inforegulator.org.za, 010 023 5200, inforegulator.org.za.</p>
+<h3>Information Officer</h3>
+<p>Lufefe Melane, smomelane@gmail.com, 081 710 6684.</p>
+<h3>Age</h3>
+<p>You must be 18 or older to create an account.</p>
+
+<h2 style="margin:18px 0 6px">Part 2: Terms of use</h2>
+<h3>Using the app</h3>
+<p>Inanda Business Web connects customers with local businesses and drivers. We are the platform. Shops sell their own goods, and drivers work for themselves. They do not work for us. Please give true details and keep your password private. You are responsible for what happens on your account.</p>
+<h3>Customers</h3>
+<p>Orders and trips are paid in cash, at the prices shown in the app. The price for a trip is the price of the driver you choose. Only tap “I have arrived safely” when the trip is really finished. Please do not place or cancel orders and trips just to waste people’s time.</p>
+<h3>Shops and other businesses</h3>
+<p>Keep your menu, prices and open or paused status correct, and accept or cancel orders honestly. You pay Inanda Business Web the amounts shown in the app by the date shown. If an amount is not paid on time, your shop may be paused until it is paid.</p>
+<h3>Drivers</h3>
+<p>You are responsible for your licence, your vehicle, your insurance and any permits you need. We check your details, but we cannot promise that every driver is safe. Pay the fee shown in the app within 7 days of each trip. If a trip stays unpaid for more than 7 days, customers stop seeing you until you pay.</p>
+<h3>Payments and fees</h3>
+<p>Customers pay shops and drivers directly, in cash. Shops and drivers pay fees to Inanda Business Web by EFT, using the bank details and reference shown in the app. Tell us when you have paid. We confirm it once the money reaches our account.</p>
+<h3>Behaviour</h3>
+<p>Be respectful. No abuse, threats, scams, spam or illegal goods. Never ask for or send money, passwords or ID numbers in a chat. Anyone can report a chat with the Report button.</p>
+<h3>Suspending accounts</h3>
+<p>We can pause or suspend an account, or remove a shop or driver, if these terms are broken, if details are false, if fees are not paid, or to keep people safe. You can ask us to close your account at any time.</p>
+<h3>Our responsibility</h3>
+<p>We work to keep the app running, but we cannot promise it will always be available or free of errors. We are not responsible for the quality of goods, for how shops or drivers behave, or for loss or injury during a delivery or trip, except where the law says we are. Nothing here takes away the rights you have under South African law, including the Consumer Protection Act.</p>
+<h3>Changes and law</h3>
+<p>We may update this policy and these terms. The date at the top shows the latest version, and we will ask you to agree again if the changes are important. These terms are governed by the laws of South Africa.</p>
+<p>Questions: smomelane@gmail.com or 081 710 6684.</p>`;
+function legalOpen(){
+  const p=document.getElementById("legalpanel"); if(!p) return;
+  p.hidden=false;
+  p.innerHTML=`<div role="dialog" aria-modal="true" aria-label="Privacy policy and terms" style="width:100%;max-width:560px;max-height:92vh;overflow-y:auto;background:var(--surface);color:var(--ink);border-radius:18px;padding:16px;line-height:1.5"><div style="text-align:right"><button class="sm" data-legal="close" id="legalclose">Close</button></div>${LEGAL_HTML}<button class="btn" data-legal="close">Close</button></div>`;
+  const c=document.getElementById("legalclose"); if(c) c.focus();
+}
+function legalClose(){ const p=document.getElementById("legalpanel"); if(p){ p.hidden=true; p.innerHTML=""; } }
+document.addEventListener("click",e=>{
+  const el=e.target.closest&&e.target.closest("[data-legal]"); const p=document.getElementById("legalpanel");
+  if(el){ if(el.dataset.legal==="open") legalOpen(); else legalClose(); }
+  else if(p&&e.target===p) legalClose();
+});
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ const p=document.getElementById("legalpanel"); if(p&&!p.hidden) legalClose(); } });
 
 // ---- PWA: install button and service worker ----
 let deferred = null;
