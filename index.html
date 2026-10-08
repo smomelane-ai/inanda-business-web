@@ -1140,5 +1140,113 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   scan();
   new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
 })();
+</script><script>
+(function () {
+  const DAYS = ["","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+  const hm = t => t ? String(t).slice(0,5) : "";
+  const st = document.createElement("style");
+  st.textContent = 'input[type=time]{font:inherit;font-size:15px;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}.hrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0}.hrow+.hrow{border-top:1px solid var(--line)}.hrow .dn{width:92px;font-weight:600}.hrow label,.mrow label{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:13px;color:var(--ink);white-space:nowrap}.mrow{display:flex;gap:8px;align-items:center;padding:6px 0}.mrow input[type=text]{flex:1;width:auto}';
+  document.head.appendChild(st);
+
+  // ---- owner: load hours and which items are on sale ----
+  async function loadMyHours() {
+    ST.hours = []; ST.avail = {};
+    if (!ST.shop) return;
+    try { ST.hours = await sb("/rest/v1/shop_hours?select=day_of_week,is_closed,opens_at,closes_at&shop_id=eq." + ST.shop.id + "&order=day_of_week"); } catch (e) {}
+    try { (await sb("/rest/v1/menu_items?select=id,is_available&shop_id=eq." + ST.shop.id)).forEach(m => { ST.avail[m.id] = m.is_available; }); } catch (e) {}
+  }
+  const _loadOwner = loadOwner;
+  loadOwner = async function () { await _loadOwner(); await loadMyHours(); };
+
+  const rowFor = d => (ST.hours || []).find(r => r.day_of_week === d);
+  const hv = d => {
+    if (ST.hd && ST.hd[d]) return ST.hd[d];
+    const r = rowFor(d);
+    return r ? { c: !!r.is_closed, o: hm(r.opens_at), x: hm(r.closes_at) } : { c: false, o: "", x: "" };
+  };
+
+  function ownerExtra() {
+    const rows = [1,2,3,4,5,6,7].map(d => { const v = hv(d);
+      return `<div class="hrow"><span class="dn">${DAYS[d]}</span><label><input type="checkbox" data-hd="c" data-d="${d}" ${v.c ? "checked" : ""}> Closed</label><input type="time" data-hd="o" data-d="${d}" value="${esc(v.o)}" aria-label="${DAYS[d]} opens"> <span>to</span> <input type="time" data-hd="x" data-d="${d}" value="${esc(v.x)}" aria-label="${DAYS[d]} closes"></div>`; }).join("");
+    const items = ST.menu.map(i => `<div class="mrow"><input type="text" maxlength="60" value="${esc(i.name)}" data-mi="${i.id}" data-mf="name" aria-label="Item name"><label><input type="checkbox" data-mi="${i.id}" data-mf="avail" ${ST.avail && ST.avail[i.id] === false ? "" : "checked"}> On sale</label></div>`).join("");
+    return `<h2>Manage your menu</h2><div class="card">${items || "<small>No items yet.</small>"}
+      <div class="note">Untick "On sale" to hide an item from customers, for example when you run out. The app price is worked out for you.</div>
+      <h2 style="margin-top:14px">Add an item</h2>${fld("mname", "Item name", "e.g. Chips")}${fld("mprice", "Shop price in rand", "e.g. 25", "number")}
+      <button class="btn" data-a="additem">Add item</button></div>
+      <h2>Trading hours</h2><div class="card">${rows}
+      <div class="note">Customers can only order while you are open. Tick Closed for days you do not trade. If you have never saved hours, your shop is always open. Times are South African time.</div>
+      <button class="btn ghost" data-a="copymon">Copy Monday to every day</button>
+      <button class="btn" data-a="savehours">Save trading hours</button></div>`;
+  }
+  const _owner = owner;
+  owner = function () { const b = _owner(); return (ownView === "due" && ST.shop) ? b + ownerExtra() : b; };
+
+  H.additem = () => go(async () => {
+    const f = ST.form, name = (f.mname || "").trim(), cents = Math.round(parseFloat(f.mprice) * 100);
+    if (!name) throw new Error("Type the item name.");
+    if (!(cents > 0) || cents > 2000000) throw new Error("Type a shop price in rand, for example 25.");
+    await sb("/rest/v1/menu_items", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ shop_id: ST.shop.id, name: name.slice(0,60), shop_price_cents: cents }) });
+    f.mname = ""; f.mprice = ""; await loadOwner(); ST.note = "Item added. Customers can order it now.";
+  });
+  H.copymon = () => { const m = hv(1); ST.hd = ST.hd || {}; for (let d = 1; d <= 7; d++) ST.hd[d] = { c: m.c, o: m.o, x: m.x }; };
+  H.savehours = () => go(async () => {
+    const rows = [];
+    for (let d = 1; d <= 7; d++) { const v = hv(d);
+      if (v.c) rows.push({ shop_id: ST.shop.id, day_of_week: d, is_closed: true, opens_at: null, closes_at: null });
+      else { if (!v.o || !v.x || v.o === v.x) throw new Error("Set different opening and closing times for " + DAYS[d] + ", or tick Closed.");
+        rows.push({ shop_id: ST.shop.id, day_of_week: d, is_closed: false, opens_at: v.o, closes_at: v.x }); } }
+    await sb("/rest/v1/shop_hours?on_conflict=shop_id,day_of_week", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+    ST.hd = null; await loadMyHours(); ST.note = "Trading hours saved.";
+  });
+
+  function syncDraft(t) {
+    const d = +t.dataset.d; ST.hd = ST.hd || {}; const cur = Object.assign({}, hv(d));
+    if (t.dataset.hd === "c") cur.c = t.checked; else if (t.dataset.hd === "o") cur.o = t.value; else cur.x = t.value;
+    ST.hd[d] = cur;
+  }
+  ["input", "change"].forEach(ev => document.addEventListener(ev, e => { const t = e.target; if (t.dataset && t.dataset.hd) syncDraft(t); }));
+  document.addEventListener("change", e => {
+    const t = e.target; if (!t.dataset || !t.dataset.mi) return; const id = t.dataset.mi;
+    if (t.dataset.mf === "name") {
+      const n = t.value.trim().slice(0,60);
+      if (!n) { go(async () => { throw new Error("The item name cannot be empty."); }); return; }
+      go(async () => { await sb("/rest/v1/menu_items?id=eq." + id, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ name: n }) }); await loadOwner(); ST.note = "Name saved."; });
+    } else if (t.dataset.mf === "avail") {
+      const on = t.checked;
+      go(async () => { await sb("/rest/v1/menu_items?id=eq." + id, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ is_available: on }) }); await loadOwner(); ST.note = on ? "Item is on sale." : "Item is hidden from customers."; });
+    }
+  });
+
+  // ---- customer: Open / Closed labels, hours, and no ordering while closed ----
+  const _loadCust = loadCust;
+  loadCust = async function () {
+    await _loadCust();
+    try { const r = await rpc("shops_open_status", {}); ST.open = {}; (r || []).forEach(x => { ST.open[x.shop_id] = x.is_open; }); } catch (e) { ST.open = {}; }
+  };
+  const _loadMenu = loadMenu;
+  loadMenu = async function (s) {
+    await _loadMenu(s);
+    try { ST.shopHours = await sb("/rest/v1/shop_hours?select=day_of_week,is_closed,opens_at,closes_at&shop_id=eq." + s.id + "&order=day_of_week"); } catch (e) { ST.shopHours = []; }
+  };
+  const _food = food;
+  food = function () {
+    let h = _food(); const op = ST.open || {};
+    if (!ST.shop) {
+      (ST.shops || []).forEach(s => {
+        if (op[s.id] === undefined) return;
+        const closed = op[s.id] === false, key = '<button class="sm" data-a="shop" data-id="' + s.id + '">Order</button>';
+        h = h.replace(key, '<span class="tag ' + (closed ? "bad" : "ok") + '">' + (closed ? "Closed" : "Open") + '</span> <button class="sm" data-a="shop" data-id="' + s.id + '">' + (closed ? "View menu" : "Order") + '</button>');
+      });
+      return h;
+    }
+    const closed = op[ST.shop.id] === false;
+    const hrs = (ST.shopHours || []).length ? '<details class="privnote"><summary>Trading hours</summary>' + ST.shopHours.map(r => '<div class="row" style="padding:3px 0"><span>' + DAYS[r.day_of_week] + '</span><span>' + (r.is_closed ? "Closed" : hm(r.opens_at) + " – " + hm(r.closes_at)) + '</span></div>').join("") + '</details>' : "";
+    if (closed) {
+      h = h.replace('<div class="card">', '<div class="banner bad"><strong>This shop is closed right now</strong>You can look at the menu, but you can only order while the shop is open.</div><div class="card">');
+      h = h.replace(/<button class="btn" data-a="order"[^>]*>Place order<\/button>/, '<button class="btn" data-a="order" disabled>Shop is closed</button>');
+    }
+    return h.replace('<label for="addr">', hrs + '<label for="addr">');
+  };
+})();
 </script></body>
 </html>
