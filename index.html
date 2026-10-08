@@ -1248,5 +1248,29 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     return h.replace('<label for="addr">', hrs + '<label for="addr">');
   };
 })();
+</script><script>
+(function () {
+  H.savehours = () => go(async () => {
+    const rows = []; let open = 0;
+    for (let d = 1; d <= 7; d++) {
+      const c = document.querySelector('[data-hd="c"][data-d="' + d + '"]'),
+            o = document.querySelector('[data-hd="o"][data-d="' + d + '"]'),
+            x = document.querySelector('[data-hd="x"][data-d="' + d + '"]');
+      if (!c || !o || !x) throw new Error("Please open your shop screen and try again.");
+      let closed = c.checked; const op = o.value, cl = x.value;
+      if (!closed && (!op || !cl)) closed = true;                 // left blank = not trading that day
+      if (closed) rows.push({ shop_id: ST.shop.id, day_of_week: d, is_closed: true, opens_at: null, closes_at: null });
+      else {
+        open++;
+        rows.push(op === cl
+          ? { shop_id: ST.shop.id, day_of_week: d, is_closed: false, opens_at: "00:00", closes_at: "23:59:59" }   // same time = open all day
+          : { shop_id: ST.shop.id, day_of_week: d, is_closed: false, opens_at: op, closes_at: cl });
+      }
+    }
+    if (!open && !confirm("Every day is closed. Customers will not be able to order from your shop. Save anyway?")) return;
+    await sb("/rest/v1/shop_hours?on_conflict=shop_id,day_of_week", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+    ST.hd = null; await loadOwner(); ST.note = "Trading hours saved.";
+  });
+})();
 </script></body>
 </html>
