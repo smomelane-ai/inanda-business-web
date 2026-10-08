@@ -821,7 +821,7 @@ const H={
   mreact:el=>go(async()=>{ await rpc("reactivate_member",{p_user:el.dataset.v}); await loadAdmin(); ST.note="Reactivated."; }),
   rclose:(el,id)=>go(async()=>{ await rpc("resolve_report",{p_report:id}); await loadAdmin(); }),
   forgot:()=>{authView="forgot";authMsg="";}, tosignup:()=>{authView="signup";authMsg="";if(!ST.areas.length) loadAreas().then(()=>render()).catch(()=>{});}, tologin:()=>{authView="login";authMsg="";},
-  logout:()=>{const keep=ST.areas; user=null;loc=null;locId=null;sess=null;BANK=null;ST=blank();ST.areas=keep;prevUnread=null;seenOrders=null;seenReqs=null;authView="login";localStorage.removeItem("inanda_sess");},
+  logout:()=>{try{ if(sess&&sess.access_token) fetch(SB_URL+"/auth/v1/logout?scope=local",{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token}}).catch(()=>{}); }catch(e){} const keep=ST.areas; user=null;loc=null;locId=null;sess=null;BANK=null;ST=blank();ST.areas=keep;prevUnread=null;seenOrders=null;seenReqs=null;authView="login";localStorage.removeItem("inanda_sess");},
   area:()=>{loc=null;locId=null;ST.shop=null;},
   loc:el=>go(async()=>{loc=el.dataset.v;locId=+el.dataset.id;ST.shop=null;await loadCust();}),
   refresh:()=>go(reload),
@@ -963,7 +963,7 @@ async function pollChat(){
   pollBusy=false;
 }
 setInterval(()=>{ tick++; if((ST.thread&&inMsgs())||tick%3===0) pollChat(); if(tick%6===0) pollWork(); },5000);
-document.getElementById("logo").innerHTML=LOGO; render(); restore();
+document.getElementById("logo").innerHTML=LOGO; render(); restore(); addEventListener("storage",e=>{ if(e.key==="inanda_sess"&&!e.newValue&&user) location.reload(); });
 
 // ---- wish list (kept on this phone only, works with no internet) ----
 const WK="inanda_wish", BK="inanda_budget";
