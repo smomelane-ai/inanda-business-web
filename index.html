@@ -1448,5 +1448,34 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     await loadAdmin(); ST.note = "Report dismissed.";
   });
 })();
+</script><script>
+(function () {
+  const st = document.createElement("style");
+  st.textContent = '@media (min-width:900px){' +
+    'main.wide{max-width:1180px;padding:24px 32px 96px}' +
+    'main.wide #install .card{max-width:560px}' +
+    'main.wide #app{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 20px;align-items:start}' +
+    'main.wide #app>h1,main.wide #app>h2,main.wide #app>.sub,main.wide #app>.banner,main.wide #app>.seg,main.wide #app>.note,main.wide #app>.cats,main.wide #app>section{grid-column:1/-1}' +
+    'main.wide .cats{grid-template-columns:repeat(4,1fr);gap:16px}' +
+    'main.wide .cat{min-height:150px}' +
+    'main.wide section[aria-label="Inanda news"]{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0 16px}' +
+    'main.wide section[aria-label="Inanda news"] .sec-h{grid-column:1/-1}' +
+    'main.wide .vcard{flex-basis:200px}' +
+    '}';
+  document.head.appendChild(st);
+
+  function isWide() {
+    if (!user) return false;
+    if (tab === "cust") return ["home", "food", "build", "beauty"].includes(cview);
+    if (tab === "own" || tab === "drv" || tab === "adm") return xtab === "main" && ownView === "due";
+    return false;
+  }
+  const _render = render;
+  render = function () {
+    _render();
+    const m = document.querySelector("main");
+    if (m) m.classList.toggle("wide", isWide());
+  };
+})();
 </script></body>
 </html>
