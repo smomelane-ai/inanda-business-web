@@ -112,6 +112,12 @@ details.privnote summary{cursor:pointer;font-weight:600}
 .cat{font:inherit;font-weight:800;font-size:19px;min-height:112px;padding:16px 8px;border-radius:16px;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
 .cat .ci{font-size:36px;line-height:1}
 .cat:active{transform:scale(.98)}
+.post{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:12px}
+.post img{display:block;width:100%;border-radius:10px;background:var(--bg);object-fit:cover;aspect-ratio:4/3}
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ba figure{margin:0}.ba img{aspect-ratio:3/4}
+.ba figcaption{font-size:13px;font-weight:800;text-align:center;margin-top:4px}
+.pcap{margin:8px 2px 6px;font-size:15px}
 details.mem{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
 details.mem summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;list-style:none;font-size:15px}
 details.mem summary::-webkit-details-marker{display:none}
@@ -175,6 +181,7 @@ async function loadCust(){
 async function loadMenu(shop){
   ST.shop=shop; ST.cart={};
   ST.menu=await sb(`/rest/v1/menu_items?select=id,name,app_price_cents&shop_id=eq.${shop.id}&is_available=eq.true&order=id`);
+  ST.posts=[]; try{ ST.posts=await sb(`/rest/v1/shop_posts?select=id,caption,image_url,before_url&shop_id=eq.${shop.id}&order=id.desc&limit=12`); }catch(e){}
 }
 async function loadOwner(){
   const sh=await sb(`/rest/v1/shops?select=id,name,status&owner_id=eq.${sess.user.id}&limit=1`);
@@ -186,6 +193,7 @@ async function loadOwner(){
     sb(`/rest/v1/shop_amount_due?select=*&shop_id=eq.${id}`),
     sb(base+"&select=id,cash_cents,fee_cents,credit_cents,net_due_cents&status=eq.delivered&payment_id=is.null&order=id")]);
   ST.orders=r[0]; ST.menu=r[1]; ST.due=r[2][0]||{}; ST.stmt=r[3];
+  ST.myPosts=[]; try{ ST.myPosts=await sb(`/rest/v1/shop_posts?select=id,caption,image_url,before_url&shop_id=eq.${id}&order=id.desc`); }catch(e){}
 }
 async function loadAdmin(){
   const r=await Promise.all([sb("/rest/v1/shops?select=id,name,status&order=id"),sb("/rest/v1/shop_amount_due?select=*"),
@@ -197,6 +205,7 @@ async function loadAdmin(){
   try{ ST.reports=await rpc("admin_reports",{}); }catch(e){ ST.reports=[]; }
   try{ const cs=await sb("/rest/v1/platform_settings?select=customers_need_approval&id=eq.1"); ST.custAppr=!!(cs&&cs[0]&&cs[0].customers_need_approval); }catch(e){}
   ST.pendOwn=[];
+  ST.recentPosts=[]; try{ ST.recentPosts=await sb("/rest/v1/shop_posts?select=id,caption,image_url,before_url,shop_id,shops(name)&order=id.desc&limit=12"); }catch(e){}
   try{
     let ap; try{ ap=await sb("/rest/v1/shop_applications?select=user_id,shop_name,shop_address,area_name,category&order=created_at"); }
     catch(e){ ap=(await sb("/rest/v1/shop_applications?select=user_id,shop_name,shop_address,area_name&order=created_at")).map(a=>({...a,category:"food"})); }
@@ -292,6 +301,14 @@ async function upload(bucket,file,name){
     throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return path;
 }
+async function uploadPost(shopId,file){
+  const body=await shrink(file), path=`${shopId}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.jpg`;
+  const r=await fetch(`${SB_URL}/storage/v1/object/shop-posts/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"Content-Type":body.type||"image/jpeg"},body});
+  if(!r.ok){ let m=""; try{ m=(await r.json()).message||""; }catch(e){}
+    throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
+  return `${SB_URL}/storage/v1/object/public/shop-posts/${path}`;
+}
+const postCard=(p,del)=>`<div class="post">${p.before_url?`<div class="ba"><figure><img src="${esc(safeUrl(p.before_url))}" alt="Before" loading="lazy"><figcaption>Before</figcaption></figure><figure><img src="${esc(safeUrl(p.image_url))}" alt="After" loading="lazy"><figcaption>After</figcaption></figure></div>`:`<img src="${esc(safeUrl(p.image_url))}" alt="" loading="lazy">`}${p.caption?`<p class="pcap">${esc(p.caption)}</p>`:""}${del?`<button class="sm" data-a="delpost" data-id="${p.id}">Delete</button>`:""}</div>`;
 const reload=()=>user.tab==="pend"?refreshPending():user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed(true)]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed(true)]);
 
 // ---- screens ----
@@ -305,13 +322,14 @@ function food(){
   }
   const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*i.app_price_cents,0);
   const items=ST.menu.map(i=>{const q=ST.cart[i.id]||0;return `<div class="row"><div><b>${esc(i.name)}</b><br><small>${R(i.app_price_cents)}</small></div><div class="qty"><button data-a="dec" data-id="${i.id}" aria-label="Remove one ${esc(i.name)}">−</button><span>${q}</span><button data-a="inc" data-id="${i.id}" aria-label="Add one ${esc(i.name)}">+</button></div></div>`}).join("");
-  return `<h1>${esc(ST.shop.name)}</h1><p class="sub">Delivered in ${esc(loc)}. You pay cash when it arrives.</p>${msgs()}
+  const gal=(ST.posts&&ST.posts.length)?`<h2>Recent work</h2>${ST.posts.map(x=>postCard(x)).join("")}`:"", top=cview==="beauty"?gal:"", bottom=cview==="beauty"?"":gal;
+  return `<h1>${esc(ST.shop.name)}</h1><p class="sub">Delivered in ${esc(loc)}. You pay cash when it arrives.</p>${msgs()}${top}
   <div class="card">${items||"<small>No items on the menu yet.</small>"}
     <label for="addr">Delivery address</label>
     <input id="addr" type="text" style="width:100%" value="${esc(ST.address)}" data-a="addr" placeholder="House number and street">
     <div class="row"><b>Pay cash on delivery</b><b>${R(total)}</b></div>
     <button class="btn" data-a="order" ${total?"":"disabled"}>Place order</button>
-    <button class="btn ghost" data-a="shops">Back to shops</button></div>${hist}`;
+    <button class="btn ghost" data-a="shops">Back to shops</button></div>${bottom}${hist}`;
 }
 const fld=(k,l,ph="",t="text")=>`<label for="f_${k}">${l}</label><input id="f_${k}" type="${t}" style="width:100%" value="${esc(ST.form[k]||"")}" data-a="form" data-k="${k}" placeholder="${ph}">`;
 const sel=(k,l,opts)=>`<label for="f_${k}">${l}</label><select id="f_${k}" data-a="form" data-k="${k}">${opts.map(([v,t])=>`<option value="${esc(v)}" ${(ST.form[k]||opts[0][0])===v?"selected":""}>${esc(t)}</option>`).join("")}</select>`;
@@ -927,7 +945,7 @@ document.body.addEventListener("change",e=>{
   else if(a==="addr"){ ST.address=t.value; }
   else if(a==="chk"){ ST.form[t.dataset.k]=t.checked; }
   else if(a==="custappr"){ const on=t.checked; go(async()=>{ await rpc("set_customer_approval",{p_on:on}); ST.custAppr=on; ST.note=on?"New customers now need your approval.":"New customers are approved automatically."; }); }
-  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt","sacct"].includes(t.dataset.k)){ if(t.dataset.k==="sacct") snapForm(); render(); } }
+  else if(a==="form"){ ST.form[t.dataset.k]=t.value; if(["rfrom","rto","rf","rt","sacct","ptype"].includes(t.dataset.k)){ if(t.dataset.k==="sacct") snapForm(); render(); } }
   else if(a==="price"){ const v=Math.round(parseFloat(t.value)*100); if(v>0) go(async()=>{await sb("/rest/v1/menu_items?id=eq."+t.dataset.id,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({shop_price_cents:v})});await loadOwner();}); }
 });
 function playCard(c){
@@ -1274,5 +1292,43 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     ST.hd = null; await loadOwner(); ST.note = "Trading hours saved.";
   });
 })();
-</script></body>
+</script><script>
+// ---- Shop posts: pictures and before/after photos ----
+(function () {
+  const _o2 = owner;
+  owner = function () {
+    const b = _o2();
+    if (!(ownView === "due" && ST.shop)) return b;
+    const ba = ST.form.ptype === "ba";
+    return b + `<h2>Show your work</h2><div class="card"><small>Customers see these on your shop page. You can keep up to 20 posts.</small>
+      ${sel("ptype","What do you want to post?",[["one","One picture"],["ba","Before and after"]])}
+      ${ba?'<label for="p_before">Before picture</label><input id="p_before" type="file" accept="image/*"><label for="p_after">After picture</label><input id="p_after" type="file" accept="image/*">':'<label for="p_one">Picture</label><input id="p_one" type="file" accept="image/*">'}
+      ${fld("pcap","Short caption (optional)","e.g. Box braids, R350")}
+      <label class="chk"><input id="p_ok" type="checkbox"><span>Anyone in the pictures has agreed that I can show them here.</span></label>
+      <button class="btn" data-a="addpost">Post</button></div>${(ST.myPosts||[]).map(x=>postCard(x,true)).join("")}`;
+  };
+  const _ao = adminOverview;
+  adminOverview = function () {
+    const rp = (ST.recentPosts||[]).map(x=>`<small>${esc((x.shops||{}).name||"Shop")}</small>`+postCard(x,true)).join("");
+    return _ao() + (rp ? `<h2>Recent shop posts</h2>${rp}` : "");
+  };
+  H.addpost = () => go(async () => {
+    const ba = ST.form.ptype === "ba", g = id => { const e = document.getElementById(id); return (e && e.files && e.files[0]) || null; };
+    const after = ba ? g("p_after") : g("p_one"), before = ba ? g("p_before") : null;
+    if (ba && !before) throw new Error("Choose the before picture.");
+    if (!after) throw new Error(ba ? "Choose the after picture." : "Choose a picture.");
+    const ok = document.getElementById("p_ok"); if (!ok || !ok.checked) throw new Error("Please tick the box to confirm that anyone in the pictures agreed.");
+    const sid = ST.shop.id, img = await uploadPost(sid, after), bef = before ? await uploadPost(sid, before) : null;
+    await rpc("add_shop_post", { p_shop: sid, p_caption: (ST.form.pcap || "").trim(), p_image: img, p_before: bef });
+    ST.form.pcap = ""; await loadOwner(); ST.note = "Posted. Customers can now see it on your shop page.";
+  });
+  H.delpost = (el, id) => go(async () => {
+    const p = (ST.myPosts || []).concat(ST.recentPosts || []).find(x => x.id === id);
+    await rpc("delete_shop_post", { p_post: id });
+    if (p) for (const u of [p.image_url, p.before_url]) { const path = u && u.split("/object/public/shop-posts/")[1]; if (path) { try { await sb("/storage/v1/object/shop-posts/" + path, { method: "DELETE" }); } catch (e) {} } }
+    await reload(); ST.note = "Post deleted.";
+  });
+})();
+</script>
+</body>
 </html>
