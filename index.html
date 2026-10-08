@@ -1330,5 +1330,123 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   });
 })();
 </script>
-</body>
+<script>
+(function () {
+  const GAL = ["beauty", "construction"], MAXP = 12;
+  const pu = p => SB_URL + "/storage/v1/object/public/shop-photos/" + String(p).split("/").map(encodeURIComponent).join("/");
+  const GR = [["person","A person is shown who did not agree"],["fake","The photos are fake or misleading"],["offensive","Offensive or inappropriate"],["copied","Not the business's own photos"],["other","Something else"]];
+  const PRS = Object.fromEntries(GR);
+  let GB = null, GA = null;
+  const st = document.createElement("style");
+  st.textContent = '.gpair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}.gpair figure{margin:0;position:relative}.gpair img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;background:var(--bg);display:block}.gpair figcaption{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}.gthumb{width:52px;height:52px;object-fit:cover;border-radius:8px;background:var(--bg)}';
+  document.head.appendChild(st);
+  const fig = (p, label, alt) => '<figure><img src="' + esc(pu(p)) + '" alt="' + esc(label + (alt ? ": " + alt : "")) + '" loading="lazy"><figcaption>' + label + '</figcaption></figure>';
+  const rmFiles = paths => fetch(SB_URL + "/storage/v1/object/shop-photos", { method: "DELETE", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: paths }) }).catch(() => {});
+  async function putPhoto(file, name) {
+    const body = await shrink(file), path = sess.user.id + "/" + name;
+    const r = await fetch(SB_URL + "/storage/v1/object/shop-photos/" + path, { method: "POST", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token, "Content-Type": body.type || "image/jpeg" }, body });
+    if (!r.ok) throw new Error(r.status === 415 ? "That photo type is not supported. Please use a JPG or PNG photo." : r.status === 413 ? "That photo is too big. Please choose a smaller one." : "Could not upload the photo (code " + r.status + ").");
+    return path;
+  }
+
+  // ---- owner: show your work ----
+  async function loadMyPhotos() {
+    ST.gal_own = []; ST.shopCat = null;
+    if (!ST.shop) return;
+    try { const c = await sb("/rest/v1/shops?select=category&id=eq." + ST.shop.id); ST.shopCat = (c[0] && c[0].category) || "food"; } catch (e) { ST.shopCat = "food"; }
+    if (GAL.includes(ST.shopCat)) { try { ST.gal_own = await sb("/rest/v1/shop_photos?select=id,caption,before_path,after_path&shop_id=eq." + ST.shop.id + "&order=id.desc"); } catch (e) {} }
+  }
+  const _lo2 = loadOwner;
+  loadOwner = async function () { await _lo2(); await loadMyPhotos(); };
+
+  function ownerGallery() {
+    const n = (ST.gal_own || []).length, f = ST.form;
+    const list = (ST.gal_own || []).map(p => '<div class="row"><span style="display:flex;gap:6px;align-items:center"><img class="gthumb" src="' + esc(pu(p.before_path)) + '" alt="Before"><img class="gthumb" src="' + esc(pu(p.after_path)) + '" alt="After"> <small>' + esc(p.caption || "") + '</small></span><button class="sm" data-a="delphoto" data-id="' + p.id + '">Remove</button></div>').join("");
+    return '<h2>Show your work</h2><div class="card"><small>' + n + ' of ' + MAXP + ' before-and-after pairs used. Customers see these on your shop page.</small>' + list +
+      fld("gcap", "Short caption (optional)", "e.g. Fade haircut") +
+      '<label for="g_before">Before photo</label><input id="g_before" type="file" accept="image/*">' + (GB ? '<small>Chosen: ' + esc(GB.name) + '</small>' : '') +
+      '<label for="g_after">After photo</label><input id="g_after" type="file" accept="image/*">' + (GA ? '<small>Chosen: ' + esc(GA.name) + '</small>' : '') +
+      '<label class="chk"><input type="checkbox" data-a="chk" data-k="gconsent" ' + (f.gconsent ? "checked" : "") + '><span>I took these photos or have the right to use them. Everyone who can be recognised in them has agreed that I may show them here, and nobody shown is under 18. The photos are real and have not been edited to change the result. I have read the photo rules in the terms.</span></label>' +
+      '<p style="margin:8px 0 0"><button type="button" class="sm" data-legal="open">Read the terms</button></p>' +
+      '<button class="btn" data-a="addphoto">Add before and after</button></div>';
+  }
+  const _owner2 = owner;
+  owner = function () { const b = _owner2(); return (ownView === "due" && ST.shop && GAL.includes(ST.shopCat)) ? b + ownerGallery() : b; };
+
+  document.addEventListener("change", e => {
+    const t = e.target;
+    if (t.id === "g_before") { GB = t.files[0] || null; render(); }
+    else if (t.id === "g_after") { GA = t.files[0] || null; render(); }
+  });
+  H.addphoto = () => go(async () => {
+    const f = ST.form;
+    if (!GB || !GA) throw new Error("Choose a before photo and an after photo.");
+    if (!/^image\//.test(GB.type) || !/^image\//.test(GA.type)) throw new Error("Please choose photos (JPG or PNG).");
+    if (!f.gconsent) throw new Error("Please tick the box to confirm you have permission to show these photos.");
+    if ((ST.gal_own || []).length >= MAXP) throw new Error("You can show up to " + MAXP + " pairs. Remove one first.");
+    ST.note = "Uploading… please keep this page open."; render();
+    const t = Date.now(); let bp = null, ap = null;
+    try {
+      bp = await putPhoto(GB, t + "-before.jpg"); ap = await putPhoto(GA, t + "-after.jpg");
+      await sb("/rest/v1/shop_photos", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ shop_id: ST.shop.id, caption: (f.gcap || "").trim().slice(0, 120) || null, before_path: bp, after_path: ap, consent: true }) });
+    } catch (e) { await rmFiles([bp, ap].filter(Boolean)); throw e; }
+    GB = null; GA = null; f.gcap = ""; f.gconsent = false;
+    await loadMyPhotos(); ST.note = "Photos added. Customers can see them now.";
+  });
+  H.delphoto = (el, id) => go(async () => {
+    if (!confirm("Remove this before-and-after pair?")) return;
+    const p = (ST.gal_own || []).find(x => x.id === id);
+    await sb("/rest/v1/shop_photos?id=eq." + id, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    if (p) await rmFiles([p.before_path, p.after_path]);
+    await loadMyPhotos(); ST.note = "Removed.";
+  });
+
+  // ---- customer: see the work, and report it ----
+  const _lm = loadMenu;
+  loadMenu = async function (s) {
+    await _lm(s); ST.rpid = null;
+    try { ST.gal = await sb("/rest/v1/shop_photos?select=id,caption,before_path,after_path&shop_id=eq." + s.id + "&order=id.desc&limit=" + MAXP); } catch (e) { ST.gal = []; }
+  };
+  function reportBox() {
+    return '<div class="note">' + sel("gpreason", "Why are you reporting this?", GR) + area("gpnote", "Tell us more (optional)", "Up to 500 characters") + '<button class="btn" data-a="gpsend">Send report</button><button class="btn ghost" data-a="gpcancel">Cancel</button></div>';
+  }
+  function galleryHtml() {
+    return '<h2>Our work</h2><div class="card">' + ST.gal.map(p => '<div style="padding:6px 0 10px"><div class="gpair">' + fig(p.before_path, "Before", p.caption) + fig(p.after_path, "After", p.caption) + '</div>' + (p.caption ? '<small>' + esc(p.caption) + '</small> ' : '') + '<button class="sm" data-a="rpphoto" data-id="' + p.id + '">Report</button>' + (ST.rpid === p.id ? reportBox() : '') + '</div>').join("") + '</div>';
+  }
+  const _food3 = food;
+  food = function () { const h = _food3(); if (!ST.shop || !(ST.gal || []).length) return h; return h.replace('<div class="card">', galleryHtml() + '<div class="card">'); };
+  H.rpphoto = (el, id) => { ST.rpid = id; };
+  H.gpcancel = () => { ST.rpid = null; };
+  H.gpsend = () => go(async () => {
+    try { await sb("/rest/v1/photo_reports", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ photo_id: ST.rpid, reason: ST.form.gpreason || "person", note: (ST.form.gpnote || "").trim().slice(0, 500) || null }) }); }
+    catch (e) { throw new Error(/duplicate|unique/i.test(e.message) ? "You have already reported these photos. Thank you." : e.message); }
+    ST.rpid = null; ST.form.gpnote = ""; ST.note = "Thank you. Your report was sent to the admin.";
+  });
+
+  // ---- admin: reported photos ----
+  const _la = loadAdmin;
+  loadAdmin = async function () {
+    await _la();
+    try { ST.preps = await sb("/rest/v1/photo_reports?select=id,reason,note,created_at,shop_photos(id,caption,before_path,after_path,shops(name))&order=created_at.desc&limit=50"); } catch (e) { ST.preps = []; }
+  };
+  const _rs = reportsScreen;
+  reportsScreen = function () {
+    const list = (ST.preps || []).map(r => { const p = r.shop_photos || {}, nm = (p.shops || {}).name || "A business";
+      return '<div class="card"><div class="row"><b>' + esc(nm) + '</b><span class="tag bad">' + esc(PRS[r.reason] || r.reason) + '</span></div><small>' + ago(r.created_at) + (p.caption ? " · " + esc(p.caption) : "") + '</small>' + (r.note ? '<p style="margin:8px 0 0">' + esc(r.note) + '</p>' : '') + (p.before_path ? '<div class="gpair">' + fig(p.before_path, "Before") + fig(p.after_path, "After") + '</div>' : '') + '<button class="btn ghost" data-a="adelphoto" data-id="' + r.id + '">Remove these photos</button><button class="btn" data-a="adismiss" data-id="' + r.id + '">Dismiss report</button></div>'; }).join("");
+    return _rs() + '<h2 style="margin-top:18px">Reported photos</h2>' + (list || '<div class="card"><small>No reported photos.</small></div>');
+  };
+  H.adelphoto = (el, id) => go(async () => {
+    const r = (ST.preps || []).find(x => x.id === id), p = r && r.shop_photos;
+    if (!p) throw new Error("That report is no longer there. Tap Refresh.");
+    if (!confirm("Remove these photos from the app for good?")) return;
+    await sb("/rest/v1/shop_photos?id=eq." + p.id, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await rmFiles([p.before_path, p.after_path]);
+    await loadAdmin(); ST.note = "Photos removed.";
+  });
+  H.adismiss = (el, id) => go(async () => {
+    await sb("/rest/v1/photo_reports?id=eq." + id, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await loadAdmin(); ST.note = "Report dismissed.";
+  });
+})();
+</script></body>
 </html>
