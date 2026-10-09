@@ -1302,9 +1302,9 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   owner = function () {
     const b = _o2();
     if (!(ownView === "due" && ST.shop)) return b;
-    const ba = ST.form.ptype === "ba";
-    return b + `<h2>Menu and pictures</h2><div class="card"><small>Post your menu, specials or photos. Customers see them on your shop page. You can keep up to 20 posts.</small>
-      ${sel("ptype","What do you want to post?",[["one","One picture (menu, specials)"],["ba","Before and after"]])}
+    const ba = false;   // before-and-after photos are now under "Show your work"
+    return b + `<h2>Menu and pictures</h2><div class="card"><small>Post a picture of your menu or specials. Customers see it on your shop page. You can keep up to 20 posts.</small>
+      
       ${ba?'<label for="p_before">Before picture</label><input id="p_before" type="file" accept="image/*"><label for="p_after">After picture</label><input id="p_after" type="file" accept="image/*">':'<label for="p_one">Picture</label><input id="p_one" type="file" accept="image/*">'}
       ${fld("pcap","Short caption (optional)","e.g. Our menu")}
       <label class="chk"><input id="p_ok" type="checkbox"><span>I am allowed to use these pictures, and anyone shown in them has agreed.</span></label>
@@ -1316,7 +1316,7 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     return _ao() + (rp ? `<h2>Recent shop posts</h2>${rp}` : "");
   };
   H.addpost = () => go(async () => {
-    const ba = ST.form.ptype === "ba", g = id => { const e = document.getElementById(id); return (e && e.files && e.files[0]) || null; };
+    const ba = false, g = id => { const e = document.getElementById(id); return (e && e.files && e.files[0]) || null; };
     const after = ba ? g("p_after") : g("p_one"), before = ba ? g("p_before") : null;
     if (ba && !before) throw new Error("Choose the before picture.");
     if (!after) throw new Error(ba ? "Choose the after picture." : "Choose a picture.");
