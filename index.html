@@ -223,7 +223,7 @@ async function loadFeed(fresh){
   try{
     const r=await Promise.all([
       sb("/rest/v1/inanda_news?select=id,title,body,image_url,source_name,source_url,posted_at&is_published=eq.true&order=posted_at.desc&limit=6",o),
-      sb("/rest/v1/funny_videos?select=id,title,video_url,poster_url,created_at&is_published=eq.true&order=created_at.desc&limit=12",o)]);
+      sb("/rest/v1/funny_videos?select=id,title,video_url,poster_url,created_at&is_published=eq.true&order=created_at.desc&limit=20",o)]);
     ST.news=r[0]; ST.vids=r[1]; ST.feedErr="";
   }catch(e){ ST.feedErr=navigator.onLine===false?"offline":e.message; }
 }
@@ -1450,5 +1450,98 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     await loadAdmin(); ST.note = "Report dismissed.";
   });
 })();
-</script></body>
+</script><script>
+// ---- Owner videos: owner uploads, admin approves, a scheduled job publishes batches ----
+(function () {
+  const MAXMB = 20, MAXSEC = 61;
+  const stText = { pending: "Waiting for approval", approved: "Approved, waiting to be published", published: "Live on the home screen", rejected: "Not approved" };
+  const videoLength = file => new Promise(res => {
+    const v = document.createElement("video"), u = URL.createObjectURL(file); v.preload = "metadata";
+    v.onloadedmetadata = () => { const d = v.duration; URL.revokeObjectURL(u); res(isFinite(d) ? d : null); };
+    v.onerror = () => { URL.revokeObjectURL(u); res(null); };
+    v.src = u;
+  });
+  async function putOv(sid, blob, name) {
+    const path = sid + "/" + name;
+    const r = await fetch(SB_URL + "/storage/v1/object/owner-videos/" + path, { method: "POST", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token, "Content-Type": blob.type || "application/octet-stream" }, body: blob });
+    if (!r.ok) { let m = ""; try { m = (await r.json()).message || ""; } catch (e) {}
+      throw new Error(/row-level security|unauthori[sz]ed/i.test(m) ? "You are not allowed to upload videos for this shop. Please tell Inanda Business Web." : /too large|exceeded|413/i.test(m + r.status) ? "That video is too big. The limit is " + MAXMB + " MB." : "Could not upload the video" + (m ? ": " + m : "") + " (code " + r.status + ")"); }
+    return SB_URL + "/storage/v1/object/public/owner-videos/" + path;
+  }
+  const ovPath = u => u && String(u).split("/object/public/owner-videos/")[1];
+
+  // load the owner's own videos
+  const _lo3 = loadOwner;
+  loadOwner = async function () {
+    await _lo3(); ST.myVideos = [];
+    if (!ST.shop) return;
+    try { ST.myVideos = await sb("/rest/v1/owner_videos?select=id,title,status,video_url,poster_url&shop_id=eq." + ST.shop.id + "&order=id.desc&limit=10"); } catch (e) {}
+  };
+  // owner screen: send a promo video
+  const _o3 = owner;
+  owner = function () {
+    const b = _o3();
+    if (!(ownView === "due" && ST.shop)) return b;
+    const list = (ST.myVideos || []).map(v => `<div class="row"><span><b>${esc(v.title)}</b><br><small>${esc(stText[v.status] || v.status)}</small></span><button class="sm" data-a="delovideo" data-id="${v.id}">Delete</button></div>`).join("");
+    return b + `<h2>Promote your business</h2><div class="card"><small>Send a video of up to 1 minute (MP4 or WebM, up to ${MAXMB} MB). Inanda Business Web checks it first. Approved videos go on the home screen in batches.</small>
+      ${fld("ovtitle", "Video title", "e.g. Fresh chips every day")}
+      <label for="ov_file">Video</label><input id="ov_file" type="file" accept="video/mp4,video/webm">
+      <label class="chk"><input id="ov_ok" type="checkbox"><span>I made this video or I am allowed to use it, and anyone shown in it has agreed.</span></label>
+      <button class="btn" data-a="addovideo">Send video</button>${list}</div>`;
+  };
+  H.addovideo = () => go(async () => {
+    const f = ST.form, title = (f.ovtitle || "").trim(), el = document.getElementById("ov_file"), file = (el && el.files && el.files[0]) || null;
+    if (!title) throw new Error("Add a title for the video.");
+    if (!file) throw new Error("Choose a video.");
+    if (!/^video\/(mp4|webm)$/.test(file.type)) throw new Error("Please use an MP4 or WebM video.");
+    if (file.size > MAXMB * 1048576) throw new Error("That video is " + Math.round(file.size / 1048576) + " MB. The limit is " + MAXMB + " MB. Record at a lower quality or make it shorter.");
+    const ok = document.getElementById("ov_ok"); if (!ok || !ok.checked) throw new Error("Please tick the box to confirm you are allowed to use this video.");
+    const secs = await videoLength(file);
+    if (secs === null) throw new Error("This phone could not read that video. Please use an MP4 or WebM video.");
+    if (secs > MAXSEC) throw new Error("That video is longer than 1 minute. Please make it shorter.");
+    ST.note = "Uploading your video… please keep this page open."; render(); window.scrollTo({ top: 0 });
+    const sid = ST.shop.id, stamp = Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    const vurl = await putOv(sid, file, stamp + (file.type === "video/webm" ? ".webm" : ".mp4"));
+    let purl = null;
+    try { const obj = URL.createObjectURL(file), b = await grabFrame(obj, true); URL.revokeObjectURL(obj); purl = await putOv(sid, b, stamp + "-poster.jpg"); } catch (e) {}
+    await rpc("add_owner_video", { p_shop: sid, p_title: title, p_video: vurl, p_poster: purl });
+    f.ovtitle = ""; await loadOwner(); ST.note = "Video sent. It will appear after Inanda Business Web approves it.";
+  });
+  H.delovideo = (el, id) => go(async () => {
+    if (!confirm("Delete this video?")) return;
+    const v = (ST.myVideos || []).find(x => x.id === id);
+    await rpc("delete_owner_video", { p_id: id });
+    if (v) for (const u of [v.video_url, v.poster_url]) { const pth = ovPath(u); if (pth) { try { await sb("/storage/v1/object/owner-videos/" + pth, { method: "DELETE" }); } catch (e) {} } }
+    await reload(); ST.note = "Video deleted.";
+  });
+
+  // admin: approval queue
+  const _la = loadAdmin;
+  loadAdmin = async function () {
+    await _la(); ST.ovPending = []; ST.ovQueued = 0; ST.ovLast = null;
+    try {
+      ST.ovPending = await sb("/rest/v1/owner_videos?select=id,title,video_url,poster_url,shops(name)&status=eq.pending&order=id");
+      ST.ovQueued = (await sb("/rest/v1/owner_videos?select=id&status=eq.approved")).length;
+      const l = await sb("/rest/v1/owner_videos?select=published_at&status=eq.published&order=published_at.desc&limit=1"); ST.ovLast = l[0] ? l[0].published_at : null;
+    } catch (e) {}
+  };
+  const _ao3 = adminOverview;
+  adminOverview = function () {
+    const pend = (ST.ovPending || []).map(v => `<div class="card"><div class="row"><b>${esc(v.title)}</b><small>${esc((v.shops || {}).name || "Shop")}</small></div>
+      <video controls playsinline preload="metadata" style="width:100%;max-height:60vh;border-radius:10px;background:#000" src="${esc(safeUrl(v.video_url))}"${v.poster_url ? ` poster="${esc(safeUrl(v.poster_url))}"` : ""}></video>
+      <button class="btn" data-a="approvev" data-id="${v.id}">Approve</button><button class="btn ghost" data-a="rejectv" data-id="${v.id}">Reject</button></div>`).join("");
+    const when = ST.ovLast ? new Date(ST.ovLast).toLocaleDateString("en-ZA", { day: "numeric", month: "short" }) : "none yet";
+    return _ao3() + `<h2>Owner videos</h2><div class="note">${ST.ovQueued || 0} approved video${ST.ovQueued === 1 ? "" : "s"} waiting in the queue. Up to 20 go live automatically every second day. Last batch: ${esc(when)}.${(ST.ovQueued || 0) ? ' <button class="sm" data-a="publishnow">Publish now</button>' : ""}</div>${pend || "<small>No videos are waiting for approval.</small>"}`;
+  };
+  H.approvev = (el, id) => go(async () => { await rpc("approve_owner_video", { p_id: id }); await loadAdmin(); ST.note = "Approved. It joins the queue."; });
+  H.rejectv = (el, id) => go(async () => { await rpc("reject_owner_video", { p_id: id }); await loadAdmin(); ST.note = "Rejected."; });
+  H.publishnow = () => go(async () => { if (!confirm("Publish up to 20 approved videos now?")) return; const n = await rpc("admin_publish_videos_now", {}); await loadAdmin(); await loadFeed(true); ST.note = (n || 0) + " video" + (n === 1 ? "" : "s") + " published."; });
+
+  // customers: pick up new videos by themselves while the app is open on Home
+  const fresh = () => { if (user && user.tab === "cust" && cview === "home" && document.visibilityState === "visible" && !document.querySelector(".vcard.playing")) loadFeed(true).then(() => { if (user && cview === "home" && tab === "cust") render(); }).catch(() => {}); };
+  setInterval(fresh, 10 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fresh(); });
+})();
+</script>
+</body>
 </html>
