@@ -118,6 +118,7 @@ details.privnote summary{cursor:pointer;font-weight:600}
 .ba figure{margin:0}.ba img{aspect-ratio:3/4}
 .ba figcaption{font-size:13px;font-weight:800;text-align:center;margin-top:4px}
 .pcap{margin:8px 2px 6px;font-size:15px}
+.post img.one{aspect-ratio:auto;height:auto;max-height:70vh;object-fit:contain;margin:0 auto}
 details.mem{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
 details.mem summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;list-style:none;font-size:15px}
 details.mem summary::-webkit-details-marker{display:none}
@@ -305,10 +306,10 @@ async function uploadPost(shopId,file){
   const body=await shrink(file), path=`${shopId}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.jpg`;
   const r=await fetch(`${SB_URL}/storage/v1/object/shop-posts/${path}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+sess.access_token,"Content-Type":body.type||"image/jpeg"},body});
   if(!r.ok){ let m=""; try{ m=(await r.json()).message||""; }catch(e){}
-    throw new Error("Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
+    throw new Error(/row-level security|unauthori[sz]ed/i.test(m)?"You are not allowed to post pictures for this shop. Please tell Inanda Business Web.":/too large|exceeded|413/i.test(m+r.status)?"That picture is too big. Please choose a smaller one.":"Could not upload the picture"+(m?": "+m:"")+" (code "+r.status+")"); }
   return `${SB_URL}/storage/v1/object/public/shop-posts/${path}`;
 }
-const postCard=(p,del)=>`<div class="post">${p.before_url?`<div class="ba"><figure><img src="${esc(safeUrl(p.before_url))}" alt="Before" loading="lazy"><figcaption>Before</figcaption></figure><figure><img src="${esc(safeUrl(p.image_url))}" alt="After" loading="lazy"><figcaption>After</figcaption></figure></div>`:`<img src="${esc(safeUrl(p.image_url))}" alt="" loading="lazy">`}${p.caption?`<p class="pcap">${esc(p.caption)}</p>`:""}${del?`<button class="sm" data-a="delpost" data-id="${p.id}">Delete</button>`:""}</div>`;
+const postCard=(p,del)=>`<div class="post">${p.before_url?`<div class="ba"><figure><img src="${esc(safeUrl(p.before_url))}" alt="Before" loading="lazy"><figcaption>Before</figcaption></figure><figure><img src="${esc(safeUrl(p.image_url))}" alt="After" loading="lazy"><figcaption>After</figcaption></figure></div>`:`<a href="${esc(safeUrl(p.image_url))}" target="_blank" rel="noopener"><img class="one" src="${esc(safeUrl(p.image_url))}" alt="Picture from this shop" loading="lazy"></a>`}${p.caption?`<p class="pcap">${esc(p.caption)}</p>`:""}${del?`<button class="sm" data-a="delpost" data-id="${p.id}">Delete</button>`:""}</div>`;
 const reload=()=>user.tab==="pend"?refreshPending():user.tab==="own"?loadOwner():user.tab==="adm"?Promise.all([loadAdmin(),loadFeed(true)]):user.tab==="drv"?loadDriver():Promise.all([loadCust(),loadFeed(true)]);
 
 // ---- screens ----
@@ -322,7 +323,7 @@ function food(){
   }
   const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*i.app_price_cents,0);
   const items=ST.menu.map(i=>{const q=ST.cart[i.id]||0;return `<div class="row"><div><b>${esc(i.name)}</b><br><small>${R(i.app_price_cents)}</small></div><div class="qty"><button data-a="dec" data-id="${i.id}" aria-label="Remove one ${esc(i.name)}">−</button><span>${q}</span><button data-a="inc" data-id="${i.id}" aria-label="Add one ${esc(i.name)}">+</button></div></div>`}).join("");
-  const gal=(ST.posts&&ST.posts.length)?`<h2>Recent work</h2>${ST.posts.map(x=>postCard(x)).join("")}`:"", top=cview==="beauty"?gal:"", bottom=cview==="beauty"?"":gal;
+  const gal=(ST.posts&&ST.posts.length)?`<h2>${cview==="beauty"?"Recent work":"Menu and pictures"}</h2>${ST.posts.map(x=>postCard(x)).join("")}`:"", top=cview==="beauty"?gal:"", bottom=cview==="beauty"?"":gal;
   return `<h1>${esc(ST.shop.name)}</h1><p class="sub">Delivered in ${esc(loc)}. You pay cash when it arrives.</p>${msgs()}${top}
   <div class="card">${items||"<small>No items on the menu yet.</small>"}
     <label for="addr">Delivery address</label>
@@ -618,7 +619,8 @@ async function pollWork(){
       seenReqs=ids;
     }else return;
     const a=document.activeElement, typing=a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName);
-    if(!typing&&xtab==="main"&&ownView==="due"&&!cancelling) render();
+    const picking=[...document.querySelectorAll("input[type=file]")].some(f=>f.files&&f.files.length);   // keep pictures the owner just chose
+    if(!typing&&!picking&&xtab==="main"&&ownView==="due"&&!cancelling) render();
   }catch(e){}
 }
 
@@ -1300,11 +1302,11 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     const b = _o2();
     if (!(ownView === "due" && ST.shop)) return b;
     const ba = ST.form.ptype === "ba";
-    return b + `<h2>Show your work</h2><div class="card"><small>Customers see these on your shop page. You can keep up to 20 posts.</small>
-      ${sel("ptype","What do you want to post?",[["one","One picture"],["ba","Before and after"]])}
+    return b + `<h2>Menu and pictures</h2><div class="card"><small>Post your menu, specials or photos. Customers see them on your shop page. You can keep up to 20 posts.</small>
+      ${sel("ptype","What do you want to post?",[["one","One picture (menu, specials)"],["ba","Before and after"]])}
       ${ba?'<label for="p_before">Before picture</label><input id="p_before" type="file" accept="image/*"><label for="p_after">After picture</label><input id="p_after" type="file" accept="image/*">':'<label for="p_one">Picture</label><input id="p_one" type="file" accept="image/*">'}
-      ${fld("pcap","Short caption (optional)","e.g. Box braids, R350")}
-      <label class="chk"><input id="p_ok" type="checkbox"><span>Anyone in the pictures has agreed that I can show them here.</span></label>
+      ${fld("pcap","Short caption (optional)","e.g. Our menu")}
+      <label class="chk"><input id="p_ok" type="checkbox"><span>I am allowed to use these pictures, and anyone shown in them has agreed.</span></label>
       <button class="btn" data-a="addpost">Post</button></div>${(ST.myPosts||[]).map(x=>postCard(x,true)).join("")}`;
   };
   const _ao = adminOverview;
@@ -1317,7 +1319,7 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     const after = ba ? g("p_after") : g("p_one"), before = ba ? g("p_before") : null;
     if (ba && !before) throw new Error("Choose the before picture.");
     if (!after) throw new Error(ba ? "Choose the after picture." : "Choose a picture.");
-    const ok = document.getElementById("p_ok"); if (!ok || !ok.checked) throw new Error("Please tick the box to confirm that anyone in the pictures agreed.");
+    const ok = document.getElementById("p_ok"); if (!ok || !ok.checked) throw new Error("Please tick the box to confirm you are allowed to use these pictures.");
     const sid = ST.shop.id, img = await uploadPost(sid, after), bef = before ? await uploadPost(sid, before) : null;
     await rpc("add_shop_post", { p_shop: sid, p_caption: (ST.form.pcap || "").trim(), p_image: img, p_before: bef });
     ST.form.pcap = ""; await loadOwner(); ST.note = "Posted. Customers can now see it on your shop page.";
@@ -1447,35 +1449,6 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     await sb("/rest/v1/photo_reports?id=eq." + id, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await loadAdmin(); ST.note = "Report dismissed.";
   });
-})();
-</script><script>
-(function () {
-  const st = document.createElement("style");
-  st.textContent = '@media (min-width:900px){' +
-    'main.wide{max-width:1180px;padding:24px 32px 96px}' +
-    'main.wide #install .card{max-width:560px}' +
-    'main.wide #app{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 20px;align-items:start}' +
-    'main.wide #app>h1,main.wide #app>h2,main.wide #app>.sub,main.wide #app>.banner,main.wide #app>.seg,main.wide #app>.note,main.wide #app>.cats,main.wide #app>section{grid-column:1/-1}' +
-    'main.wide .cats{grid-template-columns:repeat(4,1fr);gap:16px}' +
-    'main.wide .cat{min-height:150px}' +
-    'main.wide section[aria-label="Inanda news"]{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0 16px}' +
-    'main.wide section[aria-label="Inanda news"] .sec-h{grid-column:1/-1}' +
-    'main.wide .vcard{flex-basis:200px}' +
-    '}';
-  document.head.appendChild(st);
-
-  function isWide() {
-    if (!user) return false;
-    if (tab === "cust") return ["home", "food", "build", "beauty"].includes(cview);
-    if (tab === "own" || tab === "drv" || tab === "adm") return xtab === "main" && ownView === "due";
-    return false;
-  }
-  const _render = render;
-  render = function () {
-    _render();
-    const m = document.querySelector("main");
-    if (m) m.classList.toggle("wide", isWide());
-  };
 })();
 </script></body>
 </html>
