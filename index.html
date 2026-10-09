@@ -1548,10 +1548,18 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
 (function () {
   const RE = /^voice:([0-9a-f-]{36}\/[A-Za-z0-9._-]+)\|(\d{1,3})$/;
   const st = document.createElement("style");
-  st.textContent = '.vmic{width:auto;margin:0;padding:12px 14px;font-size:18px;line-height:1}.vmic.rec{background:var(--bad);color:#fff;border-color:var(--bad)}.vplay{font-size:15px;padding:8px 14px}.bub audio{max-width:100%;height:40px;display:block}';
+  st.textContent = '.vmic,.vbtn{width:auto;margin:0;padding:12px 14px;font-size:18px;line-height:1}' +
+    '.vplay{font-size:15px;padding:8px 14px}.bub audio{max-width:100%;height:40px;display:block}' +
+    '.chatbar .vpanel{display:none;flex:1;align-items:center;gap:8px}' +
+    '.chatbar.vrec .vpanel{display:flex}' +
+    '.chatbar.vrec #chatin,.chatbar.vrec [data-a="send"],.chatbar.vrec .vmic{display:none}' +
+    '.vtime{flex:1;font-weight:700;font-size:16px;white-space:nowrap}.vtime.live{color:var(--bad)}' +
+    '.vsend{padding:12px 18px;font-size:16px}';
   document.head.appendChild(st);
   const fmt = s => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
-  let rec = null, chunks = [], t0 = 0, tmr = null, cancelled = false, busy = false;
+  let rec = null, stream = null, chunks = [], tmr = null, cancelled = false, sendIt = false, busy = false, paused = false, acc = 0, seg = 0, finalSecs = 0;
+  const ms = () => acc + (rec && !paused ? Date.now() - seg : 0);
+  const secs = () => Math.round(ms() / 1000);
   const mt = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
 
   async function signed(path) {
@@ -1576,59 +1584,71 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     });
   }
 
-  // the microphone button next to Send
+  // microphone button and the recording controls (delete, pause, send)
   function paint() {
-    const b = document.querySelector(".vmic:not(.vcancel)"); if (!b) return;
-    let txt, cls, label;
-    if (busy) { txt = "…"; cls = "btn ghost vmic"; label = "Sending"; }
-    else if (rec) { txt = "⏹ " + fmt(Math.round((Date.now() - t0) / 1000)); cls = "btn vmic rec"; label = "Stop and send voice note"; }
-    else { txt = "🎤"; cls = "btn ghost vmic"; label = "Record a voice note"; }
-    if (b.textContent !== txt) b.textContent = txt;
-    if (b.className !== cls) b.className = cls;
-    b.setAttribute("aria-label", label);
-    const c = document.querySelector(".vcancel");
-    if (rec && !c) {
-      const x = document.createElement("button");
-      x.type = "button"; x.className = "btn ghost vmic vcancel"; x.textContent = "✖"; x.setAttribute("aria-label", "Cancel recording");
-      b.parentNode.insertBefore(x, b);
-    } else if (!rec && c) c.remove();
+    const bar = document.querySelector(".chatbar"); if (!bar) return;
+    bar.classList.toggle("vrec", !!rec);
+    const m = bar.querySelector(".vmic");
+    if (m) { const t = busy ? "…" : "🎤"; if (m.textContent !== t) m.textContent = t; m.setAttribute("aria-label", busy ? "Sending" : "Record a voice note"); }
+    const tm = bar.querySelector(".vtime"), p = bar.querySelector(".vpause");
+    if (tm) { const txt = (paused ? "⏸ Paused " : "● ") + fmt(secs()); if (tm.textContent !== txt) tm.textContent = txt; tm.classList.toggle("live", !paused); }
+    if (p) { const txt = paused ? "▶" : "⏸"; if (p.textContent !== txt) p.textContent = txt; p.setAttribute("aria-label", paused ? "Resume recording" : "Pause recording"); p.style.display = (rec && typeof rec.pause === "function") ? "" : "none"; }
   }
   function mic() {
     const bar = document.querySelector(".chatbar");
-    if (!bar) { if (rec) cancelRec(); return; }
+    if (!bar) { if (rec) cancelRec(true); return; }
     if (!bar.querySelector(".vmic")) {
       const b = document.createElement("button");
-      b.type = "button"; b.className = "btn ghost vmic";
+      b.type = "button"; b.className = "btn ghost vmic"; b.textContent = "🎤"; b.setAttribute("aria-label", "Record a voice note");
       bar.insertBefore(b, bar.querySelector('[data-a="send"]'));
+      const pn = document.createElement("div");
+      pn.className = "vpanel";
+      pn.innerHTML = '<button type="button" class="btn ghost vbtn vdel" aria-label="Delete recording">🗑</button><button type="button" class="btn ghost vbtn vpause" aria-label="Pause recording">⏸</button><span class="vtime live">● 0:00</span><button type="button" class="btn vbtn vsend" aria-label="Send voice note">Send</button>';
+      bar.appendChild(pn);
     }
     paint();
   }
 
-  function stopRec() { if (rec && rec.state !== "inactive") rec.stop(); }
-  function cancelRec() { cancelled = true; stopRec(); }
+  function cancelRec(quiet) {
+    if (!rec) return;
+    if (!quiet && secs() > 3 && !confirm("Delete this recording?")) return;
+    cancelled = true; sendIt = false;
+    if (rec.state !== "inactive") rec.stop();
+  }
+  function finishRec() {
+    if (!rec) return;
+    finalSecs = secs(); sendIt = true;
+    if (rec.state !== "inactive") rec.stop();
+  }
+  function togglePause() {
+    if (!rec) return;
+    if (!paused) { try { rec.pause(); } catch (e) { return; } acc += Date.now() - seg; paused = true; }
+    else { try { rec.resume(); } catch (e) { return; } seg = Date.now(); paused = false; }
+    paint();
+  }
   async function startRec() {
     if (!window.MediaRecorder || !navigator.mediaDevices) { alert("Voice notes do not work in this browser. Please type your message instead."); return; }
-    let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
     catch (e) { alert("Please allow the microphone to send a voice note."); return; }
-    chunks = []; cancelled = false;
-    const type = mt(); rec = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
-    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    rec.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const secs = Math.max(1, Math.round((Date.now() - t0) / 1000)), mime = (rec && rec.mimeType) || type || "audio/webm";
-      clearInterval(tmr); rec = null; paint();
-      if (cancelled) return;
+    chunks = []; cancelled = false; sendIt = false; paused = false; acc = 0; finalSecs = 0;
+    const type = mt(), my = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+    rec = my;
+    my.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    my.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop()); clearInterval(tmr);
+      const mime = my.mimeType || type || "audio/webm", doSend = sendIt && !cancelled, n = Math.max(1, finalSecs);
+      rec = null; paused = false; paint();
+      if (!doSend) return;
       const blob = new Blob(chunks, { type: mime });
-      if (blob.size < 1000) { alert("That recording was too short. Hold on a little longer and try again."); return; }
-      await sendNote(blob, secs);
+      if (blob.size < 1000) { alert("That recording was too short. Please try again."); return; }
+      await sendNote(blob, n);
     };
-    t0 = Date.now(); rec.start();
-    tmr = setInterval(() => { paint(); if (Date.now() - t0 > 120000) stopRec(); }, 500);
+    seg = Date.now(); my.start();
+    tmr = setInterval(() => { paint(); if (ms() > 120000) finishRec(); }, 500);
     paint();
   }
 
-  async function sendNote(blob, secs) {
+  async function sendNote(blob, n) {
     if (!ST.thread) return;
     busy = true; paint();
     const base = (blob.type || "audio/webm").split(";")[0], ext = base.includes("mp4") ? "m4a" : base.includes("ogg") ? "ogg" : "webm";
@@ -1636,8 +1656,15 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     const path = sess.user.id + "/" + Date.now() + "-" + rnd + "." + ext;
     try {
       const r = await fetch(SB_URL + "/storage/v1/object/voice-notes/" + path, { method: "POST", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token, "Content-Type": base }, body: blob });
-      if (!r.ok) throw new Error(r.status === 413 ? "That voice note is too big." : r.status === 415 ? "This phone's voice note format is not supported." : "Could not upload the voice note (code " + r.status + ").");
-      try { await rpc("send_message", { p_thread: ST.thread, p_body: "voice:" + path + "|" + secs }); }
+      if (!r.ok) {
+        let m = ""; try { m = (await r.json()).message || ""; } catch (e) {}
+        throw new Error(/bucket not found/i.test(m) ? "Voice notes are not switched on yet. Please tell Inanda Business Web."
+          : /row-level security|unauthori[sz]ed/i.test(m) ? "You are not allowed to send voice notes yet. Please tell Inanda Business Web."
+          : r.status === 413 ? "That voice note is too big."
+          : r.status === 415 || /mime/i.test(m) ? "This phone's voice note format is not supported."
+          : "Could not upload the voice note" + (m ? ": " + m : "") + " (code " + r.status + ").");
+      }
+      try { await rpc("send_message", { p_thread: ST.thread, p_body: "voice:" + path + "|" + n }); }
       catch (e) { fetch(SB_URL + "/storage/v1/object/voice-notes/" + path, { method: "DELETE", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token } }).catch(() => {}); throw e; }
       await loadThread();
       const l = document.getElementById("chatlog");
@@ -1648,8 +1675,10 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   }
 
   document.addEventListener("click", async e => {
-    const m = e.target.closest(".vmic");
-    if (m) { if (m.classList.contains("vcancel")) cancelRec(); else if (!busy) { if (rec) stopRec(); else startRec(); } return; }
+    if (e.target.closest(".vmic")) { if (!busy && !rec) startRec(); return; }
+    if (e.target.closest(".vdel")) { cancelRec(); return; }
+    if (e.target.closest(".vpause")) { togglePause(); return; }
+    if (e.target.closest(".vsend")) { finishRec(); return; }
     const p = e.target.closest(".vplay");
     if (p && !p.dataset.loading) {
       p.dataset.loading = "1"; const old = p.textContent; p.textContent = "Loading…";
