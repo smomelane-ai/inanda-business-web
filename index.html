@@ -1040,9 +1040,9 @@ function wishAdd(){
 })();
 
 // ---- privacy policy and terms (opens over any screen, so nothing typed is lost) ----
-const LEGAL_VERSION="policy-2026-10-08";
+const LEGAL_VERSION="policy-2026-10-09";
 const LEGAL_HTML=`<h2 style="margin:0 0 4px">Privacy policy and terms</h2>
-<p class="sub" style="margin:0 0 12px">Last updated: 8 October 2026.</p>
+<p class="sub" style="margin:0 0 12px">Last updated: 9 October 2026.</p>
 <h3>Who we are</h3>
 <p>Inanda Business Web (“we”, “us”) is a web app that helps people in Inanda order from local businesses and arrange transport. It is run by Lufefe Melane. The business is not yet registered as a company, so until it is, it is run by Lufefe Melane personally.</p>
 <p>Contact: smomelane@gmail.com or 081 710 6684.</p>
@@ -1054,7 +1054,8 @@ const LEGAL_HTML=`<h2 style="margin:0 0 4px">Privacy policy and terms</h2>
 <li>Customers: your orders, delivery addresses and transport requests (pick-up address, what is being moved and when).</li>
 <li>Shops and other businesses: business name, address, type, menu and prices, and the orders you receive.</li>
 <li>Drivers: your name, face photo, vehicle details (make, colour, type, number plate), routes and prices, ID number and a photo of your ID.</li>
-<li>The messages you send in chats and the reports you make.</li> <li>Businesses that show their work (for example beauty and construction): the photos you upload, including before-and-after photos, and the captions you write. A photo can show a person, so please read the photo rules in Part 2.</li> <li>When you upload a photo, we record that you confirmed you have permission to use it, and when you did so.</li>
+<li>The messages you send in chats and the reports you make.</li>
+<li>Voice notes you send in chats. They are kept privately and can only be played by the people in that chat and by the admin when a chat is reported or when we need to keep people safe.</li> <li>Businesses: the pictures, before-and-after photos and short videos you post (for example menus, specials and your work), and the captions and titles you write. A picture or video can show a person, so please read the picture and video rules in Part 2.</li> <li>When you upload a photo, we record that you confirmed you have permission to use it, and when you did so.</li>
 <li>A security check (Cloudflare Turnstile) runs when you log in or sign up, to tell people from bots. It may use details about your device and browser to do this.</li>
 <li>Your wish list is saved only on your own phone. We never receive it.</li>
 </ul>
@@ -1066,17 +1067,17 @@ const LEGAL_HTML=`<h2 style="margin:0 0 4px">Privacy policy and terms</h2>
 <li>A driver’s name, face photo, vehicle details and cell number are shown to customers once the driver is approved.</li>
 <li>A driver’s ID number and ID photo are seen only by the admin of Inanda Business Web.</li>
 <li>A shop sees the orders placed with it, including the delivery address.</li>
-<li>Only the two people in a chat can read it. If someone reports a chat, the last 30 messages of that chat are sent to the admin so we can check what happened.</li>
-<li>Gallery photos that a business uploads are shown to everyone who uses the app. Anyone who has the link to a photo may also be able to open it.</li> <li>We may share information with the police or a court if the law says we must.</li>
+<li>Only the two people in a chat can read it and play its voice notes. If someone reports a chat, the last 30 messages of that chat are sent to the admin so we can check what happened.</li>
+<li>Pictures, photos and videos that a business posts are shown to other people who use the app. Anyone who has the link to a picture, photo or video may also be able to open it.</li> <li>We may share information with the police or a court if the law says we must.</li>
 </ul>
 <h3>Where it is kept</h3>
 <p>Your information is stored with Supabase in a data centre in Ireland (eu-west-1). The app files are hosted by GitHub, and the security check is provided by Cloudflare. These companies handle information for us, and they are outside South Africa. We use providers that have security measures in place.</p>
 <h3>How long we keep it</h3>
-<p>We keep your information while your account is active. Gallery photos stay up until the business or we remove them, or until the business account is closed. If you ask us to delete your account, we delete your information, except what we must keep by law or to settle a dispute, such as payment records.</p>
+<p>We keep your information while your account is active. Pictures, photos and videos stay up until the business or we remove them, or until the business account is closed. If you ask us to delete your account, we delete your information, except what we must keep by law or to settle a dispute, such as payment records.</p>
 <h3>Keeping it safe</h3>
 <p>Logins are protected by passwords, and the database is set up so that people can only see what they are allowed to see. Please keep your password private and never send money or passwords in a chat. No system is perfectly safe. If something goes wrong that could harm you, we will tell you and the Information Regulator.</p>
 <h3>Your rights</h3>
-<p>You can ask us to show you what we hold about you, to correct it, or to delete it, and you can object to how we use it. If you appear in a photo and want it taken down, tell us and we will remove it. If you appear in a photo and want it taken down, tell us and we will remove it. Email or phone us. You can also complain to the Information Regulator: enquiries@inforegulator.org.za, 010 023 5200, inforegulator.org.za.</p>
+<p>You can ask us to show you what we hold about you, to correct it, or to delete it, and you can object to how we use it. If you appear in a photo or video and want it taken down, tell us and we will remove it. Email or phone us. You can also complain to the Information Regulator: enquiries@inforegulator.org.za, 010 023 5200, inforegulator.org.za.</p>
 <h3>Information Officer</h3>
 <p>Lufefe Melane, smomelane@gmail.com, 081 710 6684.</p>
 <h3>Age</h3>
@@ -1089,12 +1090,12 @@ const LEGAL_HTML=`<h2 style="margin:0 0 4px">Privacy policy and terms</h2>
 <p>Orders and trips are paid in cash, at the prices shown in the app. The price for a trip is the price of the driver you choose. Only tap “I have arrived safely” when the trip is really finished. Please do not place or cancel orders and trips just to waste people’s time.</p>
 <h3>Shops and other businesses</h3>
 <p>Keep your menu, prices and open or paused status correct, and accept or cancel orders honestly. You pay Inanda Business Web the amounts shown in the app by the date shown. If an amount is not paid on time, your shop may be paused until it is paid.</p>
-<h3>Opening hours and prices</h3> <p>Keep your trading hours correct. Customers cannot order while your shop is closed. The price a customer pays in the app is worked out by Inanda Business Web from the shop price you set, and you cannot change it yourself.</p> <h3>Photos and before-and-after pictures</h3> <p>Businesses such as beauty and construction can show their work with photos. By uploading a photo you agree to these rules:</p> <ul> <li>Only upload photos you took yourself or have the right to use. Do not use pictures from the internet or from other businesses.</li> <li>If a person can be recognised in a photo (for example by a face, a tattoo or another distinctive feature), you must have that person’s clear permission before you upload it. If you do not have permission, crop the photo or choose another one.</li> <li>Do not upload photos that show children (anyone under 18).</li> <li>Before-and-after photos must be real: the same person or job, taken before and after the work, with no editing that changes the result. Basic cropping and brightness are fine. Do not promise results you cannot deliver.</li> <li>Do not upload nudity, violence, or anything offensive or illegal. Do not show private details such as ID documents, house numbers, number plates or phone numbers.</li> <li>You stay the owner of your photos. You give Inanda Business Web permission to show them in the app while your account is active.</li> <li>If a person in a photo asks for it to be taken down, remove it straight away, or tell us and we will remove it.</li> </ul> <p>We may remove any photo, and we may suspend an account that breaks these rules. You are responsible for the photos you upload, including having the right permissions. We do not check every photo before it appears.</p> <h3>Drivers</h3>
+<h3>Opening hours and prices</h3> <p>Keep your trading hours correct. Customers cannot order while your shop is closed. The price a customer pays in the app is worked out by Inanda Business Web from the shop price you set, and you cannot change it yourself.</p> <h3>Pictures, photos and videos</h3> <p>Businesses can post pictures, before-and-after photos and short videos of their menu, specials and work. By uploading a picture, photo or video you agree to these rules:</p> <ul> <li>Only upload photos you took yourself or have the right to use. Do not use pictures from the internet or from other businesses.</li> <li>If a person can be recognised in a photo (for example by a face, a tattoo or another distinctive feature), you must have that person’s clear permission before you upload it. If you do not have permission, crop the photo or choose another one.</li> <li>Do not upload photos that show children (anyone under 18).</li> <li>Before-and-after photos must be real: the same person or job, taken before and after the work, with no editing that changes the result. Basic cropping and brightness are fine. Do not promise results you cannot deliver.</li> <li>Do not upload nudity, violence, or anything offensive or illegal. Do not show private details such as ID documents, house numbers, number plates or phone numbers.</li> <li>You stay the owner of your photos. You give Inanda Business Web permission to show them in the app while your account is active.</li> <li>If a person in a photo asks for it to be taken down, remove it straight away, or tell us and we will remove it.</li> </ul> <p>We may remove any photo, and we may suspend an account that breaks these rules. You are responsible for the photos you upload, including having the right permissions. We do not check every photo before it appears.</p> <h3>Drivers</h3>
 <p>You are responsible for your licence, your vehicle, your insurance and any permits you need. We check your details, but we cannot promise that every driver is safe. Pay the fee shown in the app within 7 days of each trip. If a trip stays unpaid for more than 7 days, customers stop seeing you until you pay.</p>
 <h3>Payments and fees</h3>
 <p>Customers pay shops and drivers directly, in cash. Shops and drivers pay fees to Inanda Business Web by EFT, using the bank details and reference shown in the app. Tell us when you have paid. We confirm it once the money reaches our account.</p>
 <h3>Behaviour</h3>
-<p>Be respectful. No abuse, threats, scams, spam or illegal goods. Never ask for or send money, passwords or ID numbers in a chat. Anyone can report a chat with the Report button.</p>
+<p>Be respectful. No abuse, threats, scams, spam or illegal goods. Never ask for or send money, passwords or ID numbers in a chat. Orders with shops must be arranged and paid through the app. Do not ask a shop or customer for their cell number or try to make a deal outside the app. Anyone can report a chat with the Report button.</p>
 <h3>Suspending accounts</h3>
 <p>We can pause or suspend an account, or remove a shop or driver, if these terms are broken, if details are false, if fees are not paid, or to keep people safe. You can ask us to close your account at any time.</p>
 <h3>Our responsibility</h3>
@@ -1543,5 +1544,158 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fresh(); });
 })();
 </script>
+<script>
+(function () {
+  const RE = /^voice:([0-9a-f-]{36}\/[A-Za-z0-9._-]+)\|(\d{1,3})$/;
+  const st = document.createElement("style");
+  st.textContent = '.vmic{width:auto;margin:0;padding:12px 14px;font-size:18px;line-height:1}.vmic.rec{background:var(--bad);color:#fff;border-color:var(--bad)}.vplay{font-size:15px;padding:8px 14px}.bub audio{max-width:100%;height:40px;display:block}';
+  document.head.appendChild(st);
+  const fmt = s => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  let rec = null, chunks = [], t0 = 0, tmr = null, cancelled = false, busy = false;
+  const mt = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+
+  async function signed(path) {
+    const r = await sb("/storage/v1/object/sign/voice-notes/" + path.split("/").map(encodeURIComponent).join("/"), { method: "POST", body: JSON.stringify({ expiresIn: 3600 }) });
+    return SB_URL + "/storage/v1" + r.signedURL;
+  }
+
+  // turn "voice:..." messages into play buttons
+  function decorate() {
+    document.querySelectorAll("#app .bub").forEach(b => {
+      if (b.dataset.v) return;
+      const n = b.firstChild; if (!n || n.nodeType !== 3) return;
+      const m = RE.exec(n.nodeValue.trim()); if (!m) return;
+      b.dataset.v = "1";
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "sm vplay"; btn.dataset.vpath = m[1];
+      btn.textContent = "▶ Voice note " + fmt(+m[2]);
+      b.replaceChild(btn, n);
+    });
+    document.querySelectorAll("#app .chatrow small").forEach(s => {
+      if (/^voice:[0-9a-f-]{36}\//.test(s.textContent)) s.textContent = "🎤 Voice note";
+    });
+  }
+
+  // the microphone button next to Send
+  function paint() {
+    const b = document.querySelector(".vmic:not(.vcancel)"); if (!b) return;
+    let txt, cls, label;
+    if (busy) { txt = "…"; cls = "btn ghost vmic"; label = "Sending"; }
+    else if (rec) { txt = "⏹ " + fmt(Math.round((Date.now() - t0) / 1000)); cls = "btn vmic rec"; label = "Stop and send voice note"; }
+    else { txt = "🎤"; cls = "btn ghost vmic"; label = "Record a voice note"; }
+    if (b.textContent !== txt) b.textContent = txt;
+    if (b.className !== cls) b.className = cls;
+    b.setAttribute("aria-label", label);
+    const c = document.querySelector(".vcancel");
+    if (rec && !c) {
+      const x = document.createElement("button");
+      x.type = "button"; x.className = "btn ghost vmic vcancel"; x.textContent = "✖"; x.setAttribute("aria-label", "Cancel recording");
+      b.parentNode.insertBefore(x, b);
+    } else if (!rec && c) c.remove();
+  }
+  function mic() {
+    const bar = document.querySelector(".chatbar");
+    if (!bar) { if (rec) cancelRec(); return; }
+    if (!bar.querySelector(".vmic")) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn ghost vmic";
+      bar.insertBefore(b, bar.querySelector('[data-a="send"]'));
+    }
+    paint();
+  }
+
+  function stopRec() { if (rec && rec.state !== "inactive") rec.stop(); }
+  function cancelRec() { cancelled = true; stopRec(); }
+  async function startRec() {
+    if (!window.MediaRecorder || !navigator.mediaDevices) { alert("Voice notes do not work in this browser. Please type your message instead."); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { alert("Please allow the microphone to send a voice note."); return; }
+    chunks = []; cancelled = false;
+    const type = mt(); rec = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const secs = Math.max(1, Math.round((Date.now() - t0) / 1000)), mime = (rec && rec.mimeType) || type || "audio/webm";
+      clearInterval(tmr); rec = null; paint();
+      if (cancelled) return;
+      const blob = new Blob(chunks, { type: mime });
+      if (blob.size < 1000) { alert("That recording was too short. Hold on a little longer and try again."); return; }
+      await sendNote(blob, secs);
+    };
+    t0 = Date.now(); rec.start();
+    tmr = setInterval(() => { paint(); if (Date.now() - t0 > 120000) stopRec(); }, 500);
+    paint();
+  }
+
+  async function sendNote(blob, secs) {
+    if (!ST.thread) return;
+    busy = true; paint();
+    const base = (blob.type || "audio/webm").split(";")[0], ext = base.includes("mp4") ? "m4a" : base.includes("ogg") ? "ogg" : "webm";
+    const rnd = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(x => x.toString(16).padStart(2, "0")).join("");
+    const path = sess.user.id + "/" + Date.now() + "-" + rnd + "." + ext;
+    try {
+      const r = await fetch(SB_URL + "/storage/v1/object/voice-notes/" + path, { method: "POST", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token, "Content-Type": base }, body: blob });
+      if (!r.ok) throw new Error(r.status === 413 ? "That voice note is too big." : r.status === 415 ? "This phone's voice note format is not supported." : "Could not upload the voice note (code " + r.status + ").");
+      try { await rpc("send_message", { p_thread: ST.thread, p_body: "voice:" + path + "|" + secs }); }
+      catch (e) { fetch(SB_URL + "/storage/v1/object/voice-notes/" + path, { method: "DELETE", headers: { apikey: SB_KEY, Authorization: "Bearer " + sess.access_token } }).catch(() => {}); throw e; }
+      await loadThread();
+      const l = document.getElementById("chatlog");
+      if (l) { l.innerHTML = logHtml(); l.scrollTop = l.scrollHeight; }
+      loadChats().then(updateBadges).catch(() => {});
+    } catch (e) { ST.err = e.message; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    busy = false; paint();
+  }
+
+  document.addEventListener("click", async e => {
+    const m = e.target.closest(".vmic");
+    if (m) { if (m.classList.contains("vcancel")) cancelRec(); else if (!busy) { if (rec) stopRec(); else startRec(); } return; }
+    const p = e.target.closest(".vplay");
+    if (p && !p.dataset.loading) {
+      p.dataset.loading = "1"; const old = p.textContent; p.textContent = "Loading…";
+      try {
+        const a = document.createElement("audio");
+        a.controls = true; a.autoplay = true; a.setAttribute("playsinline", ""); a.src = await signed(p.dataset.vpath);
+        p.replaceWith(a); a.play().catch(() => {});
+      } catch (err) { p.textContent = old; delete p.dataset.loading; alert("Could not load this voice note. Check your internet and try again."); }
+    }
+  });
+
+  new MutationObserver(() => { decorate(); mic(); }).observe(document.getElementById("app"), { childList: true, subtree: true });
+  decorate(); mic();
+})();
+</script>
+
+<script>
+(function () {
+  const st = document.createElement("style");
+  st.textContent = '@media (min-width:900px){' +
+    'main.wide{max-width:1180px;padding:24px 32px 96px}' +
+    'main.wide #install .card{max-width:560px}' +
+    'main.wide #app{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 20px;align-items:start}' +
+    'main.wide #app>h1,main.wide #app>h2,main.wide #app>.sub,main.wide #app>.banner,main.wide #app>.seg,main.wide #app>.note,main.wide #app>.cats,main.wide #app>section{grid-column:1/-1}' +
+    'main.wide .cats{grid-template-columns:repeat(4,1fr);gap:16px}' +
+    'main.wide .cat{min-height:150px}' +
+    'main.wide section[aria-label="Inanda news"]{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0 16px}' +
+    'main.wide section[aria-label="Inanda news"] .sec-h{grid-column:1/-1}' +
+    'main.wide .vcard{flex-basis:200px}' +
+    '}';
+  document.head.appendChild(st);
+
+  function isWide() {
+    if (!user) return false;
+    if (tab === "cust") return ["home", "food", "build", "beauty"].includes(cview);
+    if (tab === "own" || tab === "drv" || tab === "adm") return xtab === "main" && ownView === "due";
+    return false;
+  }
+  const _render = render;
+  render = function () {
+    _render();
+    const m = document.querySelector("main");
+    if (m) m.classList.toggle("wide", isWide());
+  };
+})();
+</script>
+
 </body>
 </html>
