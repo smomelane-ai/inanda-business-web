@@ -1871,5 +1871,59 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
 })();
 </script>
 
+<script>
+// ---- push alerts: each person chooses; works with the app closed ----
+(function () {
+  const VAPID = "BCRhllUIPk7lgblm7h3-eqohJJzvABrk10jh66LKXegBuXLqX638jgpK_QlNaxtSKzwDLG4zgptvR4hDH5-odOM";
+  const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const getKey = () => { try { return localStorage.getItem("inanda_push") || ""; } catch (e) { return ""; } };
+  const setKey = v => { try { localStorage.setItem("inanda_push", v); } catch (e) {} };
+  const u8 = b64 => { const s = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+  async function enable() {
+    if (!supported()) throw new Error("This phone or browser cannot show alerts while the app is closed. On an iPhone, add the app to your Home Screen first.");
+    const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (perm !== "granted") { setKey("no"); throw new Error("Alerts are blocked. Allow notifications for this app in your phone settings, then try again."); }
+    const r = await navigator.serviceWorker.ready; let sub = await r.pushManager.getSubscription();
+    if (!sub) sub = await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u8(VAPID) });
+    const j = sub.toJSON();
+    await rpc("save_push_sub", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    setKey("on");
+  }
+  async function disable() {
+    try { const r = await navigator.serviceWorker.ready, sub = await r.pushManager.getSubscription();
+      if (sub) { try { await rpc("drop_push_sub", { p_endpoint: sub.endpoint }); } catch (e) {} await sub.unsubscribe(); } } catch (e) {}
+    setKey("off");
+  }
+  H.pushon = () => go(async () => { await enable(); ST.note = "Alerts are on. You will hear a sound when something new arrives, even when the app is closed."; });
+  H.pushno = () => { setKey("no"); };
+  const _snd = H.sndtoggle;
+  H.sndtoggle = () => {
+    _snd();
+    if (!soundOn) { disable(); return; }
+    if (supported() && Notification.permission !== "denied") return go(async () => { try { await enable(); } catch (e) {} });
+  };
+  const _lo = H.logout;
+  H.logout = () => {   // a phone that logs out must stop receiving that person's alerts
+    const tok = sess && sess.access_token;
+    try { if (tok && supported()) navigator.serviceWorker.ready.then(r => r.pushManager.getSubscription()).then(s => { if (s) fetch(SB_URL + "/rest/v1/rpc/drop_push_sub", { method: "POST", headers: { apikey: SB_KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ p_endpoint: s.endpoint }) }).catch(() => {}).then(() => s.unsubscribe()); }).catch(() => {}); } catch (e) {}
+    synced = null; return _lo();
+  };
+  let synced = null;
+  const _render = render;
+  render = function () {
+    _render();
+    if (!user || user.tab === "pend" || !supported()) return;
+    const app = document.getElementById("app");
+    if (getKey() === "" && Notification.permission !== "denied" && app && !app.querySelector(".pushask")) {
+      const d = document.createElement("div"); d.className = "card pushask";
+      d.innerHTML = '<b>Get alerts with sound</b><p style="margin:6px 0 10px">Hear a sound when you get a message, an order or a trip request, even when the app is closed. You can turn it off any time with the bell at the top.</p><button class="btn" data-a="pushon">Turn on alerts</button><button class="btn ghost" data-a="pushno">Not now</button>';
+      const first = app.querySelector(".seg"); if (first) first.insertAdjacentElement("afterend", d); else app.insertBefore(d, app.firstChild);
+    }
+    const id = sess && sess.user && sess.user.id;
+    if (id && synced !== id) { synced = id; if (getKey() === "on" && Notification.permission === "granted") enable().catch(() => {}); }   // keeps this phone linked to whoever is logged in
+  };
+})();
+</script>
+
 </body>
 </html>
