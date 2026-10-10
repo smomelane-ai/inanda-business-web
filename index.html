@@ -345,7 +345,7 @@ const person=d=>`<div style="display:flex;gap:12px;align-items:center">${d.photo
 const area=(k,l,ph="")=>`<label for="f_${k}">${l}</label><textarea id="f_${k}" rows="5" style="width:100%;font:inherit;font-size:16px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)" data-a="form" data-k="${k}" placeholder="${ph}">${esc(ST.form[k]||"")}</textarea>`;
 function videoBar(){
   if(!ST.vids.length) return "";
-  return `<section aria-label="Funny videos"><div class="sec-h"><h2>Funny corner</h2><span class="muted">Tap to play</span></div><div class="vbar">${ST.vids.map(v=>`<div class="vcard" role="button" tabindex="0" data-src="${esc(safeUrl(v.video_url))}" aria-label="Play ${esc(v.title)}">${safeUrl(v.poster_url)?`<img class="vposter" src="${esc(safeUrl(v.poster_url))}" alt="" loading="lazy" ${safeUrl(v.poster_url).startsWith(SB_URL)?'crossorigin="anonymous"':""}>`:""}<div class="vplay"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div><div class="vtitle">${esc(v.title)}</div></div>`).join("")}</div></section>`;
+  return `<section aria-label="Funny videos"><div class="sec-h"><h2>Advertising</h2><span class="muted">Tap to play</span></div><div class="vbar">${ST.vids.map(v=>`<div class="vcard" role="button" tabindex="0" data-src="${esc(safeUrl(v.video_url))}" aria-label="Play ${esc(v.title)}">${safeUrl(v.poster_url)?`<img class="vposter" src="${esc(safeUrl(v.poster_url))}" alt="" loading="lazy" ${safeUrl(v.poster_url).startsWith(SB_URL)?'crossorigin="anonymous"':""}>`:""}<div class="vplay"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div><div class="vtitle">${esc(v.title)}</div></div>`).join("")}</div></section>`;
 }
 function newsSection(){
   const cards=ST.news.map(n=>{const img=safeUrl(n.image_url), own=img.startsWith(SB_URL), src=safeUrl(n.source_url), nm=n.source_name||"Chris";
@@ -1754,6 +1754,10 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     '.cols.one{grid-template-columns:minmax(0,1fr)}' +
     '#app[data-ctx=shop] .cols{grid-template-columns:minmax(0,5fr) minmax(0,6fr)}' +
     '.col{min-width:0}' +
+    '#app[data-ctx=home] .cols{grid-template-columns:minmax(0,1fr)}' +
+    '#app[data-ctx=home] .grp{margin-bottom:8px}' +
+    '#app[data-ctx=own] .cols,#app[data-ctx=own] .cols.one{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 24px}' +
+    '#app[data-ctx=own] .col{display:contents}' +
     '.stabs{display:none!important}' +
     '#app>.grp>button.sm{width:auto}' +
     '}' +
@@ -1776,13 +1780,16 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   // ---- which screens are grouped, and how ----
   const DEF = {
     shop: { tabs: [["order", "Menu"], ["pics", "Pictures"], ["mine", "My orders"]], full: [], c1: ["order", "mine"], c2: ["pics"] },
-    home: { tabs: [["svc", "Services"], ["vid", "Funny corner"], ["news", "News"]], full: ["svc"], c1: ["vid"], c2: ["news"] },
-    own:  { tabs: [["orders", "Orders"], ["money", "Money"], ["menu", "Menu"], ["hours", "Hours"], ["posts", "Posts"], ["videos", "Videos"]], full: [], c1: ["orders", "money", "posts"], c2: ["menu", "hours", "videos"] }
+    home: { tabs: [["svc", "Services"], ["vid", "Advertising"], ["news", "News"]], full: ["svc"], c1: ["vid", "news"], c2: [] },
+    own:  { tabs: [["orders", "Orders"], ["money", "Money"], ["menu", "Menu"], ["hours", "Hours"], ["posts", "Posts"], ["videos", "Videos"]], full: [], c1: ["orders", "money", "menu", "hours", "posts", "videos"], c2: [] }
   };
   const OWN_H = { "Incoming orders": "orders", "Your menu prices": "menu", "Manage your menu": "menu", "Trading hours": "hours",
     "Menu and pictures": "posts", "Recent shop posts": "posts", "Show your work": "posts", "Our work": "posts",
     "Promote your business": "videos", "Owner videos": "videos" };
   const sel = {};
+  const DESK = window.matchMedia("(min-width:900px)");
+  const onSize = () => { if (user) render(); };
+  if (DESK.addEventListener) DESK.addEventListener("change", onSize); else if (DESK.addListener) DESK.addListener(onSize);
 
   function ctxName() {
     if (!user) return null;
