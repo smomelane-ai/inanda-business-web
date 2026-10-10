@@ -177,11 +177,12 @@ async function loadCust(){
     catch(e){ ST.shops=(await sb(`/rest/v1/shops?select=id,name,owner_id&area_id=eq.${locId}&order=id`)).map(x=>({...x,category:"food"})); }
   }
   ST.mine=await sb(`/rest/v1/orders?select=id,status,cash_cents&customer_id=eq.${sess.user.id}&order=id.desc&limit=8`);
+  ST.pickMine=new Set(); try{ (await sb(`/rest/v1/orders?select=id&customer_id=eq.${sess.user.id}&pickup=eq.true&order=id.desc&limit=30`)).forEach(x=>ST.pickMine.add(x.id)); }catch(e){}
   await loadTrips();
 }
 async function loadMenu(shop){
   ST.shop=shop; ST.cart={};
-  ST.menu=await sb(`/rest/v1/menu_items?select=id,name,app_price_cents&shop_id=eq.${shop.id}&is_available=eq.true&order=id`);
+  ST.menu=await sb(`/rest/v1/menu_items?select=id,name,app_price_cents,shop_price_cents&shop_id=eq.${shop.id}&is_available=eq.true&order=id`);
   ST.posts=[]; try{ ST.posts=await sb(`/rest/v1/shop_posts?select=id,caption,image_url,before_url&shop_id=eq.${shop.id}&order=id.desc&limit=12`); }catch(e){}
 }
 async function loadOwner(){
@@ -194,6 +195,7 @@ async function loadOwner(){
     sb(`/rest/v1/shop_amount_due?select=*&shop_id=eq.${id}`),
     sb(base+"&select=id,cash_cents,fee_cents,credit_cents,net_due_cents&status=eq.delivered&payment_id=is.null&order=id")]);
   ST.orders=r[0]; ST.menu=r[1]; ST.due=r[2][0]||{}; ST.stmt=r[3];
+  ST.pickIds=new Set(); try{ (await sb(`/rest/v1/orders?select=id&shop_id=eq.${id}&pickup=eq.true&status=in.(placed,accepted)`)).forEach(x=>ST.pickIds.add(x.id)); }catch(e){}
   ST.myPosts=[]; try{ ST.myPosts=await sb(`/rest/v1/shop_posts?select=id,caption,image_url,before_url&shop_id=eq.${id}&order=id.desc`); }catch(e){}
 }
 async function loadAdmin(){
@@ -314,21 +316,22 @@ const reload=()=>user.tab==="pend"?refreshPending():user.tab==="own"?loadOwner()
 
 // ---- screens ----
 function food(){
-  const mine=ST.mine.map(o=>{const t=tagFor(o.status);return `<div class="row"><span>Order #${o.id} · ${R(o.cash_cents)}</span><span class="tag ${t[1]}">${t[0]}</span></div>`}).join("");
+  const mine=ST.mine.map(o=>{const pk=ST.pickMine&&ST.pickMine.has(o.id), t=(pk&&o.status==="delivered")?["Collected","ok"]:tagFor(o.status);return `<div class="row"><span>Order #${o.id}${pk?" (pick up)":""} · ${R(o.cash_cents)}</span><span class="tag ${t[1]}">${t[0]}</span></div>`}).join("");
   const hist=mine?`<div class="card"><h2>Your orders</h2>${mine}</div>`:"";
   if(!ST.shop){
     const cat=CATS[cview]||CATS.food;
     const list=ST.shops.filter(s=>(s.category||"food")===cat.k).map(s=>`<div class="row"><b>${esc(s.name)}</b><span><button class="sm" data-a="chatwith" data-v="${s.owner_id}">Message</button> <button class="sm" data-a="shop" data-id="${s.id}">Order</button></span></div>`).join("");
     return `<h1>${esc(cat.l)} in ${esc(loc)}</h1><p class="sub">You pay cash when your order arrives.</p>${msgs()}<div class="card">${list||"<small>No "+esc(cat.l.toLowerCase())+" businesses are open in this area yet.</small>"}</div>${hist}`;
   }
-  const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*i.app_price_cents,0);
-  const items=ST.menu.map(i=>{const q=ST.cart[i.id]||0;return `<div class="row"><div><b>${esc(i.name)}</b><br><small>${R(i.app_price_cents)}</small></div><div class="qty"><button data-a="dec" data-id="${i.id}" aria-label="Remove one ${esc(i.name)}">−</button><span>${q}</span><button data-a="inc" data-id="${i.id}" aria-label="Add one ${esc(i.name)}">+</button></div></div>`}).join("");
+  const canPick=(ST.shop.category||"food")==="food"&&cview==="food", pick=canPick&&!!ST.pickup, pr=i=>pick?i.shop_price_cents:i.app_price_cents;
+  const total=ST.menu.reduce((a,i)=>a+(ST.cart[i.id]||0)*pr(i),0);
+  const items=ST.menu.map(i=>{const q=ST.cart[i.id]||0;return `<div class="row"><div><b>${esc(i.name)}</b><br><small>${R(pr(i))}</small></div><div class="qty"><button data-a="dec" data-id="${i.id}" aria-label="Remove one ${esc(i.name)}">−</button><span>${q}</span><button data-a="inc" data-id="${i.id}" aria-label="Add one ${esc(i.name)}">+</button></div></div>`}).join("");
   const gal=(ST.posts&&ST.posts.length)?`<h2>${cview==="beauty"?"Recent work":"Menu and pictures"}</h2>${ST.posts.map(x=>postCard(x)).join("")}`:"", top=cview==="beauty"?gal:"", bottom=cview==="beauty"?"":gal;
-  return `<h1>${esc(ST.shop.name)}</h1><p class="sub">Delivered in ${esc(loc)}. You pay cash when it arrives.</p>${msgs()}${top}
-  <div class="card">${items||"<small>No items on the menu yet.</small>"}
-    <label for="addr">Delivery address</label>
-    <input id="addr" type="text" style="width:100%" value="${esc(ST.address)}" data-a="addr" placeholder="House number and street">
-    <div class="row"><b>Pay cash on delivery</b><b>${R(total)}</b></div>
+  return `<h1>${esc(ST.shop.name)}</h1><p class="sub">${pick?"Pick up at the shop. You pay cash when you collect.":"Delivered in "+esc(loc)+". You pay cash when it arrives."}</p>${msgs()}${top}
+  <div class="card">${canPick?`<div class="seg" role="tablist"><button role="tab" aria-checked="${!pick}" data-a="pmode" data-v="deliver">Delivery</button><button role="tab" aria-checked="${pick}" data-a="pmode" data-v="pickup">Pick up</button></div>`:""}${items||"<small>No items on the menu yet.</small>"}
+    ${pick?`<div class="note">You collect your order at <b>${esc(ST.shop.name)}</b> and pay cash there. These are the shop's own prices.</div>`:`<label for="addr">Delivery address</label>
+    <input id="addr" type="text" style="width:100%" value="${esc(ST.address)}" data-a="addr" placeholder="House number and street">`}
+    <div class="row"><b>${pick?"Pay cash at pick-up":"Pay cash on delivery"}</b><b>${R(total)}</b></div>
     <button class="btn" data-a="order" ${total?"":"disabled"}>Place order</button>
     <button class="btn ghost" data-a="shops">Back to shops</button></div>${bottom}${hist}`;
 }
@@ -444,11 +447,11 @@ function owner(){
   const bn=sh.status==="paused"?'<div class="banner bad"><strong>Your shop is paused</strong>Customers cannot order until the amount due is paid.</div>':"";
   const open=ST.orders.map(o=>{
     const t=tagFor(o.status), what=(o.order_items||[]).map(l=>l.quantity+"× "+esc(l.name)).join(", ");
-    const cr=Math.round(o.cash_cents*0.05), net=(o.cash_cents-o.shop_cents)-cr; let act="";
+    const pk=ST.pickIds&&ST.pickIds.has(o.id), cr=pk?0:Math.round(o.cash_cents*0.05), net=pk?Math.round(o.cash_cents*0.15):(o.cash_cents-o.shop_cents)-cr; let act="";
     if(cancelling===o.id) act=`<select id="why"><option>Customer not answering</option><option>Out of stock</option><option>Shop closed</option><option>Too far to deliver</option></select><button class="btn ghost" data-a="docancel" data-id="${o.id}">Confirm cancel</button>`;
-    else act=(o.status==="placed"?`<button class="btn" data-a="accept" data-id="${o.id}">Accept order</button>`:`<button class="btn" data-a="deliver" data-id="${o.id}">Delivered — cash collected</button>`)+`<button class="btn ghost" data-a="cancel" data-id="${o.id}">Cancel</button>`;
-    return `<div class="card"><div class="row"><b>Order #${o.id}</b><span class="tag ${t[1]}">${t[0]}</span></div><p style="margin:4px 0">${what}</p><p style="margin:4px 0"><small>Deliver to: ${esc(o.delivery_address)}</small> <button class="sm" data-a="chatwith" data-v="${o.customer_id}">Message customer</button></p>
-      <p class="note" style="margin:6px 0">Collect <b>${R(o.cash_cents)}</b> cash. You keep ${R(o.shop_cents+cr)}. You owe ${R(net)}.</p>${act}</div>`;}).join("");
+    else act=(o.status==="placed"?`<button class="btn" data-a="accept" data-id="${o.id}">Accept order</button>`:`<button class="btn" data-a="deliver" data-id="${o.id}">${pk?"Collected — cash received":"Delivered — cash collected"}</button>`)+`<button class="btn ghost" data-a="cancel" data-id="${o.id}">Cancel</button>`;
+    return `<div class="card"><div class="row"><b>Order #${o.id}</b><span>${pk?'<span class="tag">Pick up</span> ':""}<span class="tag ${t[1]}">${t[0]}</span></span></div><p style="margin:4px 0">${what}</p><p style="margin:4px 0"><small>${pk?"<b>PICK UP</b>: the customer collects at your shop":"Deliver to: "+esc(o.delivery_address)}</small> <button class="sm" data-a="chatwith" data-v="${o.customer_id}">Message customer</button></p>
+      <p class="note" style="margin:6px 0">${pk?`The customer pays <b>${R(o.cash_cents)}</b> cash at your shop. You keep ${R(o.cash_cents-net)}. You owe ${R(net)} (15%).`:`Collect <b>${R(o.cash_cents)}</b> cash. You keep ${R(o.shop_cents+cr)}. You owe ${R(net)}.`}</p>${act}</div>`;}).join("");
   const prices=ST.menu.map(i=>`<div class="row"><span>${esc(i.name)}</span><span>Shop R <input type="number" min="1" step="0.5" value="${i.shop_price_cents/100}" data-a="price" data-id="${i.id}" aria-label="Shop price for ${esc(i.name)}"> → app <b>${R(i.app_price_cents)}</b></span></div>`).join("");
   return `<h1>${esc(sh.name)}</h1><p class="sub">Pay on the 1st of every month.</p>${bn}${msgs()}
   <div class="card"><h2>Amount due</h2>
@@ -469,7 +472,7 @@ function stmtScreen(){
   <div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;text-align:right">
     <tr><th style="text-align:left">Order</th><th>Cash</th><th>Fee</th><th>Credit</th><th>You owe</th></tr>${rows}
     <tr><th style="text-align:left">Total</th><th>${t("cash_cents")}</th><th>${t("fee_cents")}</th><th>−${t("credit_cents")}</th><th>${t("net_due_cents")}</th></tr></table>
-    <div class="note">Fee is 25% of the app price. The delivery credit is 5% of the app price. You owe the fee minus the credit.</div>
+    <div class="note">Fee is 25% of the app price. The delivery credit is 5% of the app price. You owe the fee minus the credit. Pick-up orders: the fee is 15% of the cash paid, with no delivery credit.</div>
     <button class="btn ghost" data-a="back">Back</button></div>`;
 }
 function payRef(){
@@ -601,7 +604,9 @@ function ding(){
 function notifyIncoming(){ if(!soundOn) return; unlockAudio(); ding(); try{ if(navigator.vibrate) navigator.vibrate([150,80,150]); }catch(e){} }
 function checkIncoming(){
   const cur={}; ST.chats.forEach(c=>{ cur[c.chat_id]=c.unread||0; });
-  if(prevUnread && ST.chats.some(c=>(c.unread||0)>(prevUnread[c.chat_id]||0))) notifyIncoming();
+  const hot=ST.chats.some(c=>(c.unread||0)>(prevUnread&&prevUnread[c.chat_id]||0));
+  if(prevUnread && hot) notifyIncoming();
+  if(ST.thread && inMsgs()) cur[ST.thread]=0;   // an open chat is marked read straight away, so the next new message must ring again
   prevUnread=cur;
 }
 async function pollWork(){
@@ -719,11 +724,10 @@ async function doSignup(){
     }
     if(!/^(\+27|0)[0-9]{9}$/.test(phone)) throw new Error("Please type a valid cell number, for example 081 234 5678.");
     if(!email) throw new Error("Please type your email address.");
-    if(password.length<8) throw new Error("The password must be at least 8 characters.");
+    if(password.length<6) throw new Error("The password must be at least 6 characters.");
     if(!f.sagree) throw new Error("Please tick the box to say you have read the privacy note.");
     tsCheck();
     const r=await sb("/auth/v1/signup",{method:"POST",body:JSON.stringify({email,password,data:{name:f.sname.trim(),surname:f.ssurname.trim(),area:f.sarea,phone,terms_version:LEGAL_VERSION,...extra},...tsMeta()})});
-    f.spwv="";
     if(r&&r.access_token){
       const photo=phf&&phf[0], idfile=idf&&idf[0];
       await afterLogin(r); f.spwv="";
@@ -750,7 +754,7 @@ async function doRecover(){
 }
 async function doSetPw(){
   const pw=document.getElementById("pw").value, pw2=document.getElementById("pw2").value;
-  if(pw.length<8){authMsg="The password must be at least 8 characters.";render();return;}
+  if(pw.length<6){authMsg="The password must be at least 6 characters.";render();return;}
   if(pw!==pw2){authMsg="The two passwords are not the same.";render();return;}
   try{ await sb("/auth/v1/user",{method:"PUT",headers:{Authorization:"Bearer "+recoveryToken},body:JSON.stringify({password:pw})});
     recoveryToken=null; authView="login"; authMsg="Password changed. Log in with your new password."; }
@@ -797,7 +801,7 @@ function signupScreen(){
     <p style="margin:8px 0 0">Your cell number is private. It is only shared with a driver you choose for a trip, so they can call you. Shops, other customers and drivers you did not choose never see it. If you report a chat, the last 30 messages of that chat are sent to the admin.${ST.form.sacct==="driver"?" Once you are approved, customers see your name, face photo, vehicle details and cell number. Your ID number and ID photo are only seen by the admin.":""} We keep your details safely, and you can ask us to delete them.</p></details>
   <p style="margin:8px 0 0"><button type="button" class="sm" data-legal="open">Read the full privacy policy and terms</button></p>
   ${fld("semail","Email address","","email")}
-  <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" value="${esc(ST.form.spwv||"")}" placeholder="At least 8 characters">
+  <label for="spw">Create a password</label><input id="spw" type="password" autocomplete="new-password" value="${esc(ST.form.spwv||"")}" placeholder="At least 6 characters">
   <label class="chk"><input type="checkbox" data-a="chk" data-k="sagree" ${ST.form.sagree?"checked":""}><span>${ST.form.sacct==="driver"?"I have read the privacy policy and terms. I agree that Inanda Business Web keeps my ID details to check who I am, and shows my name, photo, vehicle and cell number to customers.":"I have read the privacy policy and terms, and I agree."}</span></label>
   ${tsBox()}
   <button class="btn" data-a="signup">Create account</button>
@@ -847,13 +851,16 @@ const H={
   area:()=>{loc=null;locId=null;ST.shop=null;},
   loc:el=>go(async()=>{loc=el.dataset.v;locId=+el.dataset.id;ST.shop=null;await loadCust();}),
   refresh:()=>go(reload),
-  shop:(el,id)=>go(()=>loadMenu(ST.shops.find(s=>s.id===id))),
+  shop:(el,id)=>go(()=>{ST.pickup=false;return loadMenu(ST.shops.find(s=>s.id===id));}),
+  pmode:el=>{ST.pickup=el.dataset.v==="pickup";},
   shops:()=>{ST.shop=null;},
   inc:(el,id)=>{ST.cart[id]=(ST.cart[id]||0)+1;}, dec:(el,id)=>{ST.cart[id]=Math.max(0,(ST.cart[id]||0)-1);},
   order:()=>go(async()=>{
     const items=ST.menu.filter(i=>ST.cart[i.id]).map(i=>({menu_item_id:i.id,quantity:ST.cart[i.id]}));
-    const n=await rpc("place_order",{p_shop_id:ST.shop.id,p_address:ST.address,p_items:items});
-    ST.cart={}; ST.note="Order #"+n+" placed. Pay cash when it arrives."; await loadCust(); }),
+    const pick=!!ST.pickup&&(ST.shop.category||"food")==="food"&&cview==="food";
+    const args={p_shop_id:ST.shop.id,p_address:pick?"":ST.address,p_items:items}; if(pick) args.p_pickup=true;
+    const n=await rpc("place_order",args);
+    ST.cart={}; ST.note=pick?"Order #"+n+" placed. Collect it at the shop and pay cash there.":"Order #"+n+" placed. Pay cash when it arrives."; await loadCust(); }),
   accept:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"accepted"});await loadOwner();}),
   deliver:(el,id)=>go(async()=>{await rpc("set_order_status",{p_order:id,p_status:"delivered"});await loadOwner();}),
   cancel:(el,id)=>{cancelling=id;},
@@ -978,7 +985,7 @@ async function pollChat(){
     const last=ST.msgs.length?ST.msgs[ST.msgs.length-1].id:0;
     await loadChats();
     if(ST.thread&&inMsgs()){ await loadThread(); const now=ST.msgs.length?ST.msgs[ST.msgs.length-1].id:0;
-      if(now!==last){ const l=document.getElementById("chatlog"); if(l){ const near=l.scrollHeight-l.scrollTop-l.clientHeight<80; if([...l.querySelectorAll("audio")].some(a=>!a.paused&&!a.ended)){ ST.logDirty=true; } else { l.innerHTML=logHtml(); if(near) l.scrollTop=l.scrollHeight; } } rpc("mark_read",{p_thread:ST.thread}).catch(()=>{}); } }
+      if(now!==last){ const l=document.getElementById("chatlog"); if(l){ const near=l.scrollHeight-l.scrollTop-l.clientHeight<80; l.innerHTML=logHtml(); if(near) l.scrollTop=l.scrollHeight; } rpc("mark_read",{p_thread:ST.thread}).catch(()=>{}); } }
     else if(inMsgs()){ const c=document.getElementById("chatlist"); if(c) c.innerHTML=chatRows(); }
     updateBadges();
   }catch(e){}
@@ -1028,7 +1035,8 @@ function wishAdd(){
     if(e.target===p){ wishClose(); return; }
     const el=e.target.closest("[data-w]"); if(!el) return; const a=el.dataset.w;
     if(a==="close") wishClose(); else if(a==="add") wishAdd();
-    else if(a==="del"){ WISH=WISH.filter(w=>w.id!==el.dataset.id); wsave(); wishOpen(false); }
+    else if(a==="del"){ WISH=WISH.filter(w=>w.id!==el.dataset.id); wsav
+      e(); wishOpen(false); }
     else if(a==="clear"){ WISH=WISH.filter(w=>!w.done); wsave(); wishOpen(false); }
   });
   p.addEventListener("change",e=>{
@@ -1549,7 +1557,14 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
   const RE = /^voice:([0-9a-f-]{36}\/[A-Za-z0-9._-]+)\|(\d{1,3})$/;
   const st = document.createElement("style");
   st.textContent = '.vmic,.vbtn{width:auto;margin:0;padding:12px 14px;font-size:18px;line-height:1}' +
-    '.vnplay{display:inline-flex;align-items:center;gap:6px;position:static;font-size:15px;padding:8px 14px;white-space:nowrap}.bub[data-v]{min-width:min(230px,80%)}.bub audio{max-width:100%;height:40px;display:block}' +
+    '.bub[data-v]{min-width:min(250px,78vw);cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '.vnote{display:flex;align-items:center;gap:10px;min-height:44px;user-select:none;-webkit-user-select:none}' +
+    '.vnb{flex:0 0 40px;width:40px;height:40px;border-radius:50%;border:2px solid currentColor;display:grid;place-items:center;font-size:14px;line-height:1;padding-left:2px;box-sizing:border-box}' +
+    '.vnote.on .vnb{padding-left:0}' +
+    '.vnt{position:relative;flex:1;height:6px;border-radius:3px;overflow:hidden;min-width:60px}' +
+    '.vnt::before{content:"";position:absolute;inset:0;background:currentColor;opacity:.25}' +
+    '.vnt i{position:absolute;left:0;top:0;bottom:0;width:0;background:currentColor}' +
+    '.vnd{flex:0 0 auto;min-width:36px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums}' +
     '.chatbar .vpanel{display:none;flex:1;align-items:center;gap:8px}' +
     '.chatbar.vrec .vpanel{display:flex}' +
     '.chatbar.vrec #chatin,.chatbar.vrec [data-a="send"],.chatbar.vrec .vmic{display:none}' +
@@ -1567,6 +1582,34 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     return SB_URL + "/storage/v1" + r.signedURL;
   }
 
+  // one shared player per voice note, so a refresh of the chat never loses it
+  const PL = {};
+  function sync(w) {
+    const pl = PL[w.dataset.vpath], a = pl && pl.a, on = !!(a && !a.paused && !a.ended), dur = +w.dataset.dur || 0;
+    w.classList.toggle("on", on);
+    w.querySelector(".vnb").textContent = pl && pl.loading ? "…" : on ? "❚❚" : "▶";
+    const t = a && isFinite(a.duration) && a.duration ? a.duration : dur;
+    w.querySelector(".vnt i").style.width = a && t ? Math.min(100, a.currentTime / t * 100) + "%" : "0";
+    w.querySelector(".vnd").textContent = pl && pl.err ? "Retry" : fmt(Math.round(on && a ? Math.max(0, t - a.currentTime) : t));
+  }
+  const syncAll = p => document.querySelectorAll('.vnote[data-vpath="' + p + '"]').forEach(sync);
+  async function toggle(w) {
+    const p = w.dataset.vpath; let pl = PL[p];
+    if (pl && pl.loading) return;
+    if (pl && pl.a) { if (pl.a.paused || pl.a.ended) { Object.keys(PL).forEach(k => { if (k !== p && PL[k].a) PL[k].a.pause(); }); if (pl.a.ended) pl.a.currentTime = 0; pl.a.play().catch(() => {}); } else pl.a.pause(); syncAll(p); return; }
+    pl = PL[p] = { loading: true }; syncAll(p);
+    try {
+      const r = await fetch(await signed(p));
+      if (!r.ok) throw new Error("load");
+      const blob = await r.blob(), a = new Audio(URL.createObjectURL(new Blob([blob], { type: blob.type || "audio/webm" })));
+      a.setAttribute("playsinline", "");
+      ["play", "pause", "ended", "timeupdate", "loadedmetadata"].forEach(ev => a.addEventListener(ev, () => syncAll(p)));
+      pl.a = a; pl.loading = false;
+      Object.keys(PL).forEach(k => { if (k !== p && PL[k].a) PL[k].a.pause(); });
+      a.play().catch(() => {}); syncAll(p);
+    } catch (err) { delete PL[p]; PL[p] = { err: true }; syncAll(p); setTimeout(() => { if (PL[p] && PL[p].err) { delete PL[p]; syncAll(p); } }, 4000); }
+  }
+
   // turn "voice:..." messages into play buttons
   function decorate() {
     document.querySelectorAll("#app .bub").forEach(b => {
@@ -1574,10 +1617,10 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
       const n = b.firstChild; if (!n || n.nodeType !== 3) return;
       const m = RE.exec(n.nodeValue.trim()); if (!m) return;
       b.dataset.v = "1";
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "sm vnplay"; btn.dataset.vpath = m[1];
-      btn.textContent = "▶ Voice note " + fmt(+m[2]);
-      b.replaceChild(btn, n);
+      const w = document.createElement("span");
+      w.className = "vnote"; w.dataset.vpath = m[1]; w.dataset.dur = m[2]; w.setAttribute("role", "button"); w.tabIndex = 0; w.setAttribute("aria-label", "Play voice note");
+      w.innerHTML = '<span class="vnb" aria-hidden="true">▶</span><span class="vnt"><i></i></span><span class="vnd">' + fmt(+m[2]) + '</span>';
+      b.replaceChild(w, n); sync(w);
     });
     document.querySelectorAll("#app .chatrow small").forEach(s => {
       if (/^voice:[0-9a-f-]{36}\//.test(s.textContent)) s.textContent = "🎤 Voice note";
@@ -1679,27 +1722,15 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     if (e.target.closest(".vdel")) { cancelRec(); return; }
     if (e.target.closest(".vpause")) { togglePause(); return; }
     if (e.target.closest(".vsend")) { finishRec(); return; }
-    const p = e.target.closest(".vnplay");
-    if (p && !p.dataset.loading) {
-      p.dataset.loading = "1"; const old = p.textContent; p.textContent = "Loading…";
-      try {
-        const r = await fetch(await signed(p.dataset.vpath));
-        if (!r.ok) throw new Error("load");
-        const blob = await r.blob(), a = document.createElement("audio");
-        a.controls = true; a.setAttribute("playsinline", "");
-        a.src = URL.createObjectURL(new Blob([blob], { type: blob.type || "audio/webm" }));
-        p.replaceWith(a); a.play().catch(() => {});
-      } catch (err) { p.textContent = old; delete p.dataset.loading; alert("Could not load this voice note. Check your internet and try again."); }
-    }
+    const bub = e.target.closest(".bub[data-v]"), w = bub && bub.querySelector(".vnote");
+    if (w) toggle(w);
+  });
+  document.addEventListener("keydown", e => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("vnote")) { e.preventDefault(); toggle(e.target); }
   });
 
   new MutationObserver(() => { decorate(); mic(); }).observe(document.getElementById("app"), { childList: true, subtree: true });
   decorate(); mic();
-  ["ended", "pause"].forEach(ev => document.addEventListener(ev, e => {
-    if (e.target.tagName !== "AUDIO" || !ST.logDirty) return;
-    const l = document.getElementById("chatlog"); if (!l || [...l.querySelectorAll("audio")].some(a => !a.paused && !a.ended)) return;
-    ST.logDirty = false; l.innerHTML = logHtml(); l.scrollTop = l.scrollHeight;
-  }, true));
 })();
 </script>
 
@@ -1710,12 +1741,28 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     'main.wide{max-width:1180px;padding:24px 32px 96px}' +
     'main.wide #install .card{max-width:560px}' +
     'main.wide #app{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 20px;align-items:start}' +
-    'main.wide #app>h1,main.wide #app>h2,main.wide #app>.sub,main.wide #app>.banner,main.wide #app>.seg,main.wide #app>.note,main.wide #app>.cats,main.wide #app>section{grid-column:1/-1}' +
+    'main.wide #app>h1,main.wide #app>h2,main.wide #app>.sub,main.wide #app>.banner,main.wide #app>.seg,main.wide #app>.note,main.wide #app>.cats,main.wide #app>section,main.wide #app>button.sm{grid-column:1/-1}' +
+    'main.wide #app>button.sm{justify-self:start;width:auto}' +
     'main.wide .cats{grid-template-columns:repeat(4,1fr);gap:16px}' +
     'main.wide .cat{min-height:150px}' +
-    'main.wide section[aria-label="Inanda news"]{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0 16px}' +
+    'main.wide section[aria-label="Inanda news"]{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 16px}' +
     'main.wide section[aria-label="Inanda news"] .sec-h{grid-column:1/-1}' +
     'main.wide .vcard{flex-basis:200px}' +
+    /* organised screens: normal flow, two tidy columns, no tab bar */
+    'main.wide #app[data-ctx]{display:block}' +
+    '.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 24px;align-items:start}' +
+    '.cols.one{grid-template-columns:minmax(0,1fr)}' +
+    '#app[data-ctx=shop] .cols{grid-template-columns:minmax(0,5fr) minmax(0,6fr)}' +
+    '.col{min-width:0}' +
+    '.stabs{display:none!important}' +
+    '#app>.grp>button.sm{width:auto}' +
+    '}' +
+    '@media (max-width:899px){' +
+    '.cols,.col{display:contents}' +
+    '.grp.off{display:none}' +
+    '.stabs{flex-wrap:nowrap;overflow-x:auto;position:sticky;top:0;z-index:5;background:var(--bg);padding:6px 0;margin-bottom:8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
+    '.stabs::-webkit-scrollbar{display:none}' +
+    '.stabs button{flex:1 0 auto;padding:10px 14px;white-space:nowrap}' +
     '}';
   document.head.appendChild(st);
 
@@ -1725,11 +1772,92 @@ if("serviceWorker" in navigator) addEventListener("load", () => navigator.servic
     if (tab === "own" || tab === "drv" || tab === "adm") return xtab === "main" && ownView === "due";
     return false;
   }
+
+  // ---- which screens are grouped, and how ----
+  const DEF = {
+    shop: { tabs: [["order", "Menu"], ["pics", "Pictures"], ["mine", "My orders"]], full: [], c1: ["order", "mine"], c2: ["pics"] },
+    home: { tabs: [["svc", "Services"], ["vid", "Funny corner"], ["news", "News"]], full: ["svc"], c1: ["vid"], c2: ["news"] },
+    own:  { tabs: [["orders", "Orders"], ["money", "Money"], ["menu", "Menu"], ["hours", "Hours"], ["posts", "Posts"], ["videos", "Videos"]], full: [], c1: ["orders", "money", "posts"], c2: ["menu", "hours", "videos"] }
+  };
+  const OWN_H = { "Incoming orders": "orders", "Your menu prices": "menu", "Manage your menu": "menu", "Trading hours": "hours",
+    "Menu and pictures": "posts", "Recent shop posts": "posts", "Show your work": "posts", "Our work": "posts",
+    "Promote your business": "videos", "Owner videos": "videos" };
+  const sel = {};
+
+  function ctxName() {
+    if (!user) return null;
+    if (tab === "cust") { if (ST.shop && ["food", "build", "beauty"].includes(cview)) return "shop"; if (cview === "home") return "home"; return null; }
+    if (tab === "own" && xtab === "main" && ownView === "due" && ST.shop) return "own";
+    return null;
+  }
+  const headText = el => { const h = el.tagName === "H2" ? el : el.querySelector(":scope>h2"); return h ? h.textContent.trim() : ""; };
+  function classify(c, el) {
+    const t = headText(el), card = el.classList && el.classList.contains("card");
+    if (c === "shop") {
+      if (el.tagName === "H2" && (t === "Menu and pictures" || t === "Recent work" || t === "Our work")) return "pics";
+      if (card && el.querySelector('[data-a="order"]')) return "order";
+      if (card && t === "Your orders") return "mine";
+    } else if (c === "home") {
+      if (el.tagName === "H1") return "svc";
+      const l = el.getAttribute && el.getAttribute("aria-label");
+      if (l === "Funny videos") return "vid";
+      if (l === "Inanda news") return "news";
+    } else if (c === "own") {
+      if (el.tagName === "H2" && OWN_H[t]) return OWN_H[t];
+      if (card && t === "Amount due") return "money";
+    }
+    return null;
+  }
+
+  function organize() {
+    const app = document.getElementById("app"); if (!app) return;
+    const c = ctxName();
+    if (!c) { app.removeAttribute("data-ctx"); return; }
+    const def = DEF[c], grps = {}; let cur = null;
+    [...app.children].forEach(el => {
+      let g = classify(c, el);
+      if (!g && el.tagName === "BUTTON") g = c === "home" ? "svc" : cur;
+      if (g) cur = g;
+      if (!cur) return;
+      if (!grps[cur]) { const d = document.createElement("div"); d.className = "grp"; d.dataset.g = cur; grps[cur] = d; }
+      grps[cur].appendChild(el);
+    });
+    const have = def.tabs.filter(t => grps[t[0]]);
+    if (!have.length) { app.removeAttribute("data-ctx"); return; }
+    app.dataset.ctx = c;
+    def.full.forEach(g => { if (grps[g]) app.appendChild(grps[g]); });
+    const cols = document.createElement("div"); cols.className = "cols";
+    const c1 = document.createElement("div"), c2 = document.createElement("div"); c1.className = c2.className = "col";
+    def.c1.forEach(g => { if (grps[g]) c1.appendChild(grps[g]); });
+    def.c2.forEach(g => { if (grps[g]) c2.appendChild(grps[g]); });
+    if (c1.children.length) cols.appendChild(c1); if (c2.children.length) cols.appendChild(c2);
+    if (cols.children.length < 2) cols.classList.add("one");
+    if (cols.children.length) app.appendChild(cols);
+    if (have.length > 1) {
+      const bar = document.createElement("div"); bar.className = "seg stabs"; bar.setAttribute("role", "tablist");
+      bar.innerHTML = have.map(([k, l]) => {
+        const n = k === "orders" ? grps[k].querySelectorAll('[data-a="accept"],[data-a="deliver"]').length : 0;
+        return '<button role="tab" data-a="stab" data-v="' + k + '" data-n="' + l + '">' + l + (n ? " (" + n + ")" : "") + '</button>';
+      }).join("");
+      const nav = [...app.children].find(x => x.classList && x.classList.contains("seg"));
+      if (nav) nav.insertAdjacentElement("afterend", bar); else app.insertBefore(bar, app.firstChild);
+      if (!sel[c] || !grps[sel[c]]) sel[c] = c === "shop" && cview === "beauty" && grps.pics ? "pics" : have[0][0];
+      applyTabs();
+    }
+  }
+  function applyTabs() {
+    const app = document.getElementById("app"), c = app && app.dataset.ctx; if (!c) return;
+    app.querySelectorAll(".grp").forEach(g => g.classList.toggle("off", g.dataset.g !== sel[c]));
+    app.querySelectorAll(".stabs button").forEach(b => b.setAttribute("aria-checked", String(b.dataset.v === sel[c])));
+  }
+  H.stab = el => { const app = document.getElementById("app"), c = app && app.dataset.ctx; if (c) { sel[c] = el.dataset.v; applyTabs(); window.scrollTo({ top: 0 }); } return Promise.resolve(); };
+
   const _render = render;
   render = function () {
     _render();
     const m = document.querySelector("main");
     if (m) m.classList.toggle("wide", isWide());
+    try { organize(); } catch (e) {}
   };
 })();
 </script>
